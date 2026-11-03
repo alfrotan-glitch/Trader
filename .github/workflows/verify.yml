@@ -1,0 +1,26 @@
+name: Trader source and installer checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pin original source and inspect setup safety
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Confirm no compiled EA or private files were added
+        run: |
+          if find . -type f \( -iname '*.ex5' -o -iname '*.env' \) -not -path './.git/*' | grep .; then
+            echo 'ERROR: compiled EA or local credentials in repository'
+            exit 1
+          fi
