@@ -104,7 +104,7 @@ class TestEntryQualityReentry(unittest.TestCase):
         install = (ROOT / "tools" / "install_entry_quality_trial.ps1").read_text(encoding="utf-8")
         self.assertIn("install_entry_quality_trial.ps1", launcher)
         self.assertIn("-File", launcher)
-        self.assertIn("-VerifyOnly", install)
+        self.assertIn("[switch]$VerifyOnly", install)
         self.assertIn("Assert-Hash $variant 'variant'", install)
         self.assertIn("Assert-Hash $original 'original'", install)
         self.assertIn("Assert-Hash $preset 'preset'", install)
