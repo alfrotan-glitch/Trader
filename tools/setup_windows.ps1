@@ -165,7 +165,7 @@ try {
     $from = (Get-Date).AddMonths(-3).ToString('yyyy.MM.dd')
     $to = (Get-Date).AddDays(-1).ToString('yyyy.MM.dd')
     $iniPath = Join-Path $runDir 'tester.ini'
-    $reportBase = Join-Path $runDir 'Nyao_M5_RealTicks'
+    $reportName = 'Trader_Nyao_M5_RealTicks_' + $stamp
     $ini = @(
       '[Tester]'
       'Expert=Trader\nyao_scalper'
@@ -179,9 +179,9 @@ try {
       'Deposit=3000'
       ('FromDate=' + $from)
       ('ToDate=' + $to)
-      ('Report=' + $reportBase)
+      ('Report=' + $reportName)
       'ReplaceReport=0'
-      'ShutdownTerminal=1'
+      'ShutdownTerminal=0'
     ) -join [Environment]::NewLine
     Write-Utf8 $iniPath ($ini + [Environment]::NewLine)
     $metadata = @{
