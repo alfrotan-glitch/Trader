@@ -60,3 +60,4 @@ jobs:
           & .\tools\setup_windows.ps1 -LaunchTester
           if ($LASTEXITCODE -ne 2) { throw 'Unsafe auto-launch was not blocked.' }
           Write-Host 'Unsafe headless auto-launch blocked as designed.'
+          exit 0
