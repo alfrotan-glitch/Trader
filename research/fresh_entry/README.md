@@ -41,10 +41,10 @@ Frozen common inputs include `RiskPerTradePct=0.0`, `BaseLotSize=0.01`, `EnableD
 
 1. Pull the repository's current `main`; neither preset compiles nor starts MT5.
 2. Open the **WMMarkets DEMO MT5** application manually, choose Strategy Tester (`Ctrl+R`).
-3. Select original `Trader\\nyao_scalper`, *not* `TraderResearch\\nyao_scalper_entry_gate`.
+3. Select original `Trader\nyao_scalper`, *not* `TraderResearch\nyao_scalper_entry_gate`.
 4. Set `XAUUSD@` / M5 / Jan 1 to Nov 2, 2026 / Every tick based on real ticks / USD 3000 / leverage 1:100 / Optimization Off / Forward No.
-5. In **Inputs > Load**, load **control** `C:\\Users\\Forotan\\Trader\\research\\entry_quality\\Trader_ENTRY_GATE_FIXED001.set`, verify `MinEfficiencyToTrade=0.0`, run; save full report + Journal as `NYAO_FRESH_CONTROL`.
-6. In the **same Expert and tester** only, choose **Inputs > Load** and load `C:\\Users\\Forotan\\Trader\\research\\fresh_entry\\Trader_FRESH_ER015_FIXED001.set`; verify `MinEfficiencyToTrade=0.15` and fixed lot, run; save full report + Journal as `NYAO_FRESH_ER015`.
+5. In **Inputs > Load**, load **control** `C:\Users\Forotan\Trader\research\entry_quality\Trader_ENTRY_GATE_FIXED001.set`, verify `MinEfficiencyToTrade=0.0`, run; save full report + Journal as `NYAO_FRESH_CONTROL`.
+6. In the **same Expert and tester** only, choose **Inputs > Load** and load `C:\Users\Forotan\Trader\research\fresh_entry\Trader_FRESH_ER015_FIXED001.set`; verify `MinEfficiencyToTrade=0.15` and fixed lot, run; save full report + Journal as `NYAO_FRESH_ER015`.
 7. Send both reports for a ledger-level comparison. The tester Journal is helpful if enabled, but `EnableLogging=false` means ordinary `LogPrint` filter diagnostics are intentionally muted; **do not change EnableLogging only in one variant**, as that would break the one-variable protocol.
 
 Baseline previously observed: **940 trades, net +$981.55, Profit Factor 1.14, maximum equity drawdown 17.87%, win rate 43.30%**. Those are historical numbers, not an approved forward result.
