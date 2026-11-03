@@ -105,6 +105,9 @@ try {
     if (-not [string]::Equals($Symbol,'XAUUSD@',[System.StringComparison]::Ordinal)) {
         throw 'Only the explicitly checked WMMarkets symbol XAUUSD@ is supported by this research launcher.'
     }
+    if ($LaunchTester) {
+        throw 'UNSAFE_AUTO_LAUNCH_DISABLED: The MT5 tester failed broker/symbol synchronization and the terminal became unresponsive. Do not auto-launch; use RUN_TESTER.bat for read-only diagnostics and test manually in DEMO MT5.'
+    }
     $terminal = Resolve-Terminal
     Write-Host ("Terminal: " + $terminal.Terminal)
     Write-Host ("Data:     " + $terminal.Data)
@@ -198,17 +201,6 @@ try {
     Write-Host 'SUCCESS: main EA installed and compiled, conservative TESTER preset prepared.'
     Write-Host ("Tester configuration: " + $iniPath)
     Write-Host 'No chart was attached; Algo Trading was NOT enabled; no broker order was sent.'
-    if ($LaunchTester) {
-        Write-Warning 'The MT5 terminal may restore existing trading charts on startup. Confirm you have a DEMO-only terminal with no running live EAs.'
-        $confirm = Read-Host 'Type DEMO to explicitly launch this research-only Strategy Tester'
-        if ($confirm -ne 'DEMO') { Write-Host 'Tester launch cancelled; installation remains prepared.'; exit 0 }
-        $running = @(Get-Process -Name terminal64 -ErrorAction SilentlyContinue | Where-Object {
-            try { (Canonical-Path $_.Path) -eq (Canonical-Path $terminal.Terminal) } catch { $false }
-        })
-        if ($running.Count -gt 0) { throw 'Selected MT5 terminal is already running. Close it manually before starting isolated testing; nothing was sent.' }
-        Start-Process -FilePath $terminal.Terminal -ArgumentList @('/config:"' + $iniPath + '"') | Out-Null
-        Write-Host 'Strategy Tester startup requested. This is a simulated test, NOT a broker trade; inspect its actual report before drawing conclusions.'
-    }
     exit 0
 }
 catch {
