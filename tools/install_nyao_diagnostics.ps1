@@ -142,37 +142,7 @@ try {
         (Get-Item -LiteralPath $destBinary).LastWriteTime -ge $compileStart.AddSeconds(-3)
     } else { $false }
     $logClean = $logText -match '(?im)^\s*Result:\s*0 errors,\s*0 warnings\b'
-    $codeGenerated = $logText -match '(?im)^\s*:\s*information:\s*code generated\s*
-    $receipt = [ordered]@{
-        verdict = 'DIAGNOSTIC_COMPILED__NOT_BACKTESTED__LIVE_LOCKED'
-        source_sha256 = $sourceHash
-        module_sha256 = $headerHash
-        preset_sha256 = $profileHash
-        vendor_sha256 = $origHash
-        ex5_sha256 = File-SHA $destBinary
-        terminal = $mt5.Terminal
-        data_folder = $mt5.Data
-        profile = $destPreset
-        output_csv_when_tested = Join-Path $env:APPDATA 'MetaQuotes\Terminal\Common\Files\NYAO_ENTRY_DIAGNOSTICS.csv'
-        started_terminal = $false
-        sent_orders = $false
-    }
-    $utf8 = New-Object System.Text.UTF8Encoding($false)
-    [IO.File]::WriteAllText((Join-Path $runDir 'receipt.json'),($receipt | ConvertTo-Json -Depth 5),$utf8)
-    Write-Host ''
-    Write-Host 'PASS: compiled research-only EA. Main Nyao EA NOT replaced.'
-    Write-Host 'In DEMO MT5 Strategy Tester select Expert: TraderResearch\nyao_scalper_diagnostic'
-    Write-Host ('Load Inputs preset: ' + $destPreset)
-    Write-Host ('CSV output after manual TEST: ' + $receipt.output_csv_when_tested)
-    Write-Host ('Compile evidence: ' + $runDir)
-    Write-Host 'Terminal was NOT launched; no orders were sent. LIVE remains LOCKED.'
-    exit 0
-} catch {
-    Write-Host ('STOP: ' + $_.Exception.Message) -ForegroundColor Red
-    Write-Host 'This script cannot enable live trading and has not started the terminal.'
-    exit 2
-}
-
+    $codeGenerated = $logText -match '(?im)^\s*:\s*information:\s*code generated\s*$'
     Write-Host ('MetaEditor exit code (informational): ' + $p.ExitCode)
     Write-Host ('Compiler summary clean: ' + $logClean)
     Write-Host ('Code generation finished: ' + $codeGenerated)
