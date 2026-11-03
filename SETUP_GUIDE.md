@@ -1,44 +1,51 @@
-# Trader — Windows one-click setup
+# Trader — Windows setup and MT5 incident safety
 
-This repository mirrors the original Nyao Scalper MT5 project (pinned revision `cf70e9e7f77a77d25554c60d66c44b1b39dbb396`) and adds a deliberately small, separate Windows installation wrapper.
+This repository contains the original BSD-3-Clause Nyao Scalper MQL5 code (pinned to upstream revision `cf70e9e7f77a77d25554c60d66c44b1b39dbb396`). The main code remains unchanged; attribution and license are retained in `LICENSE`.
 
-The original BSD-3-Clause `LICENSE`, copyright notices, `nyao_scalper.mq5`, `nyao_straddle.mq5` and the vendor reports remain the upstream author's work, not original work by the Trader repository.
+## Installation
 
-## What to click
+1. Install the intended MT5 terminal and open it once.
+2. Clone this repository and double-click `ONE_CLICK_SETUP.bat`.
+3. The setup checks source hashes, finds the MT5 data folder, backs up prior files, installs and compiles the main EA, and prepares a simulated testing preset.
+4. This **does not** verify broker login, XAUUSD@ symbol availability or actual Strategy Tester execution. It does not authorize live trading.
 
-1. Install and open the intended **WMMarkets MetaTrader 5** terminal once so its registered data folder is discoverable. No new broker login is created by these scripts.
-2. Download this repository with **Code → Download ZIP** and extract it, or clone it with Git.
-3. Double-click **`ONE_CLICK_SETUP.bat`** on Windows.
-4. The launcher checks the exact vendor source SHA-256, identifies a single MT5 installation/data folder, backs up any previously installed Trader EA, copies the source into `MQL5/Experts/Trader`, compiles it using that terminal's `metaeditor64.exe`, checks the fresh `.ex5`, and writes a reproducible `M5` Strategy Tester preset, `tester.ini`, a source/EX5 checksum receipt and a local run folder.
-5. The installer **does not open a trading chart, enable Algo Trading, send broker orders, or automatically attach the EA**.
+If multiple MT5 installations are detected, setup stops rather than guessing. There is no automatic EA chart attachment or Algo Trading activation.
 
-If there are multiple MT5 installations and none can be selected unambiguously, the installer **fails closed** rather than choosing a random account. This is intentional. Advanced invocation:
+## November 3, 2026 MT5 incident
+
+After a successful compile, the initial one-click auto tester launcher sent `terminal64.exe /config:...` and the user reported the GUI became **Not Responding** and exited. The test journal displayed:
+
+- `not synchronized with trade server`
+- `cannot select symbol in market watch`
+- `"Trader\nyao_scalper.ex5" X64`
+
+These messages establish failure to synchronize the trading server or select `XAUUSD@` before any confirmed test result. They **do not prove** why Windows displayed Not Responding or whether the process exited due to a crash, a startup failure, or a shutdown setting. Earlier QTS test entries in that journal are unrelated and must not be presented as Nyao results.
+
+### Safety hotfix
+
+- `RUN_TESTER.bat` now performs **read-only diagnostics only**. It does NOT start MT5.
+- Direct use of `setup_windows.ps1 -LaunchTester` explicitly fails closed with `UNSAFE_AUTO_LAUNCH_DISABLED`.
+- Repeated recompile/backup side effects of the old tester launcher have been removed.
+- `tools/diagnose_mt5.ps1` reads current journals and Windows Application error events 1000/1001/1002; it neither starts nor kills MT5.
+- The generated INI uses a relative report name and `ShutdownTerminal=0` for future manual use. This does not on its own repair broker synchronization or guarantee a working tester.
+
+## Restore and verify MT5 manually (DEMO only)
+
+1. Open the intended MetaTrader 5 normally (from the Start menu, not the Trader launcher).
+2. Confirm it is a **DEMO** login, online and connected to the actual WMMarkets trade server.
+3. Open Market Watch with Ctrl+M. Use Symbols to confirm the actual gold instrument name. `XAUUSD@` is assumed by the current research preset; if the connected account only offers a differently suffixed symbol, do **not** blindly replace it or start the existing preset.
+4. Press Ctrl+R, choose `Expert Advisors -> Trader -> nyao_scalper`, `XAUUSD@`, M5, and a **short smoke-test window**. Start with 1-minute OHLC to verify the tester can start; once history is synchronized, conduct an independent real-tick run with modeling set to Every tick based on real ticks.
+5. Do not attach the EA to a live chart. Do not enable AutoTrading for a real-money account.
+6. If MT5 itself again hangs on a normal GUI startup, run `RUN_TESTER.bat` to collect Windows crash event data and investigate a broken installation/profile before retrying any EA.
+
+For a manual diagnosis without any broker activity:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\setup_windows.ps1 -TerminalPath "C:\Path\To\terminal64.exe" -DataFolder "C:\Users\USER\AppData\Roaming\MetaQuotes\Terminal\HASH"
+cd "$env:USERPROFILE\Trader"
+git pull --ff-only origin main
+.\RUN_TESTER.bat
 ```
 
-## Optional simulated backtest
+**No independent profitable edge or live trading authorization has been established.**
 
-After setup, double-click `RUN_TESTER.bat` **only when the intended terminal is DEMO-only and no trading EAs could resume on launch**. It requires typing `DEMO` and refuses to start a second copy of an already running terminal.
-
-The generated tester configuration uses `XAUUSD@`, `M5`, `Model=4` (real ticks), `Deposit=3000`, `Optimization=0`, `UseCloud=0`, a modified research profile with 1% maximum per-trade nominal risk, one open order, hedge-chain disabled, stops enabled, and max lot 0.02. The exact broker contract and a complete real-tick history must still be verified locally.
-
-The test profile **differs from the vendor's original preset**. Do not compare its result directly to claimed original-vendor historical returns. A test without data or with zero trades does not prove an edge. Past backtests, even real-tick tests, cannot establish future profits.
-
-**Important:** Opening a preconfigured MT5 terminal could also restore previously saved charts and EAs. That is why automatic terminal launch is intentionally an explicit, second-step DEMO action rather than part of unattended installation.
-
-## Safety
-
-- The Nyao Scalper MQL5 source itself can submit broker orders when manually attached and Algo Trading is enabled. The Trader installer never enables those capabilities.
-- Never attach this EA to a REAL account without independent cost, slippage, contract-size, and forward validation. Neither this integration nor the vendor's reports constitute profitable-edge validation.
-- This package does **not** include compiled EX5 files, broker passwords, or a remote execution service.
-- Two EAs are present upstream; **only `nyao_scalper.mq5` is compiled by default**. `nyao_straddle.mq5` is left untouched.
-- Under `local_runs/`, every run retains a separate configuration and receipt. This folder is ignored by Git.
-- The one-click installer validates an exact SHA-256 for `nyao_scalper.mq5`. Replacing or editing the source needs a deliberate code review and checksum change.
-
-Original project: https://github.com/elrizwiraswara/nyao_scalper_mt5
-
-## Attribution
-
-Copyright (c) 2026 Elriz Wiraswara. Source distributed under the upstream BSD-3-Clause license in `LICENSE`. No endorsement by the original author is implied.
+Original source: https://github.com/elrizwiraswara/nyao_scalper_mt5
