@@ -71,12 +71,12 @@ try {
     $profileHash = File-SHA $profile
 
     $profileText = Get-Content -LiteralPath $profile -Raw -ErrorAction Stop
-    $pairs = [regex]::Matches($profileText, '(?m)^([A-Za-z_][A-Za-z0-9_]*)=([^\r\n]*)\r?)
+    $pairs = [regex]::Matches($profileText, '(?m)^([A-Za-z_][A-Za-z0-9_]*)=([^\r\n]*)\r?$')
     if ($pairs.Count -ne 172) { throw ('Expected exactly 172 preset inputs, got ' + $pairs.Count) }
     foreach ($exact in @('MinEfficiencyToTrade=0.15','BaseLotSize=0.01','MaxOpenOrders=1',
                          'RiskPerTradePct=0.0','EnableLossManagement=false','EnableLimitEntry=false',
                          'EnableHedgeChain=false','DrawdownScope=1')) {
-        if ($profileText -notmatch ('(?m)^' + [regex]::Escape($exact) + '\r?) {
+        if ($profileText -notmatch ('(?m)^' + [regex]::Escape($exact) + '\r?$')) {
             throw ('Research preset is not frozen: expected ' + $exact)
         }
     }
