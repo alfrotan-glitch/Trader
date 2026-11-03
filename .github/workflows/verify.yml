@@ -49,3 +49,14 @@ jobs:
             exit 1
           }
           Write-Host 'PowerShell installer syntax verified; no broker process invoked.'
+      - name: Smoke-run read-only diagnostic without MT5 installed
+        shell: powershell
+        run: |
+          & .\tools\diagnose_mt5.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Read-only MT5 diagnostic smoke test failed.' }
+      - name: Refuse unsafe tester auto-start before terminal discovery
+        shell: powershell
+        run: |
+          & .\tools\setup_windows.ps1 -LaunchTester
+          if ($LASTEXITCODE -ne 2) { throw 'Unsafe auto-launch was not blocked.' }
+          Write-Host 'Unsafe headless auto-launch blocked as designed.'
