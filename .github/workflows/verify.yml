@@ -64,6 +64,20 @@ jobs:
           & .\tools\install_entry_quality_trial.ps1 -VerifyOnly
           if ($LASTEXITCODE -ne 0) { throw 'Entry trial source hash verification failed.' }
           Write-Host 'Pinned trial, vendor original and research preset verified offline.'
+      - name: Verify Nyao diagnostic installer and tester-only source (no MT5 installed)
+        shell: powershell
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          $file = 'tools/install_nyao_diagnostics.ps1'
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+          & .\tools\install_nyao_diagnostics.ps1 -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { throw 'Nyao research file integrity validation failed' }
+          Write-Host 'Diagnostic installer parsed; exact research preset and unchanged vendor validated.'
       - name: Smoke-run read-only diagnostic without MT5 installed
         shell: powershell
         run: |
