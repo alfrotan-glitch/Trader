@@ -63,3 +63,54 @@ Baseline previously observed: **940 trades, net +$981.55, Profit Factor 1.14, ma
 `tests/test_fresh_entry_efficiency.py` asserts: vendor main source unchanged; only one input different; actual fresh-entry call chain contains the filter; and efficiency is calculated on the last 20 **closed** M5 candles.
 
 The presence of code and green CI proves integrity only. It does **not** prove a profitable filter. This task requires the user's native MetaTrader real-tick test to evaluate the hypothesis.
+
+
+## Measured 2026 real-tick A/B result — Nov 3, 2026
+
+User-provided native WMMarkets-Demo (MT5 Build 6230) full reports:
+- Baseline: `Pasted text(20261103-082232).txt`, `MinEfficiencyToTrade=0.0`
+- Experimental: `Pasted text(20261103-093939).txt`, `MinEfficiencyToTrade=0.15`
+
+**Comparison validity:** checked all 172 settings from both reports; the **only difference** is `MinEfficiencyToTrade`. Both reports have XAUUSD@ M5, Jan 1 to Nov 2 2026, 100% real ticks, 59,124 bars, 68,054,566 ticks, $3,000 deposit, 1:100 leverage, exact 0.01 lot on all entries, no optimization.
+
+| Metric | Baseline 0.00 | Trial 0.15 | Change |
+| --- | ---: | ---: | ---: |
+| Total trades | 940 | 718 | -222 net |
+| Net P&L | +$981.55 | +$1,212.42 | +$230.87 |
+| Profit factor | 1.14 | 1.24 | +0.10 (rounded) |
+| Equity max drawdown | $656.55 / 17.87% | $544.70 / 14.71% | -$111.85 / -3.16 percentage points |
+| MT5 winning trades (counts break-even as non-losing) | 407 / 43.30% | 305 / 42.48% | -0.82 percentage points |
+| Strict positive trades | 397 | 297 | -100 |
+| Strict break-even trades | 10 | 8 | -2 |
+| Losing trades | 533 | 413 | -120 |
+| Avg net P&L per trade | $1.04 | $1.69 | +$0.65 |
+| Recovery factor | 1.50 | 2.23 | +0.73 |
+| Sharpe (MT5 reported) | 2.69 | 4.30 | +1.61 |
+| Largest loss | -$41.51 | -$70.92 | worse tail loss |
+| Top ten winners total | +$927.24 | +$916.04 | -$11.20 |
+| Net excluding top ten winners | +$54.31 | +$296.38 | +$242.07 |
+
+Monthly net P&L is based on closing deal time, with swap/commissions included:
+
+| Month 2026 | Base count | Base P&L | Trial count | Trial P&L |
+| --- | ---: | ---: | ---: | ---: |
+| Jan | 140 | +$542.72 | 92 | +$577.70 |
+| Feb | 145 | -$259.41 | 105 | -$247.01 |
+| Mar | 161 | +$192.62 | 117 | +$275.89 |
+| Apr | 66 | -$69.57 | 60 | -$149.10 |
+| May | 58 | +$94.02 | 50 | +$158.04 |
+| Jun | 123 | +$424.86 | 93 | +$352.67 |
+| Jul | 79 | +$66.87 | 41 | +$15.09 |
+| Aug | 79 | +$20.50 | 60 | +$73.95 |
+| Sep | 33 | +$9.35 | 44 | +$47.26 |
+| Oct | 56 | -$40.41 | 56 | +$107.93 |
+
+**Trade-path caveat:** an exact key of entry timestamp + direction + entry price matches only **275** trades across the variants; all 275 also have identical exit timestamps, exit prices and net profits. Baseline-only entries = 665; trial-only entries = 443. The filter does not merely remove a fixed subset of 222 baseline positions: blocked entries change open-position state, cooldown, subsequent entries, fills and P&L path. Do **not** attribute the $230.87 delta to an identifiable basket of 222 skipped losers.
+
+**Direction breakdown:** trial BUY 300 / +$237.19; trial SELL 418 / +$975.23. Trial Aug–Oct +$229.14 versus baseline -$10.56, but these months were not held out in advance. Trial Apr is worse (-$149.10 versus -$69.57). Trial top ten winners account for 75.55% of total net profit versus baseline 94.47%; profit concentration is improved but still material.
+
+**Transaction cost sensitivity:** the tester incorporates its modeled spread and reports zero commissions; extra *unmodeled* costs of $0.50 per trade would yield +$853.42 trial net, $1.00 per trade +$494.42, and $1.50 +$135.42. These are counterfactual sensitivities, not estimates of real broker costs; do not charge spread a second time.
+
+**Decision:** `HISTORICAL_SCREEN_PASS__FORWARD_DEMO_REQUIRED__LIVE_LOCKED`. Stronger in-sample PF, expectancy, drawdown and profit concentration at the preregistered single 0.15 cutoff; win rate did not rise. These results are **not independent proof of an edge** because the filter was selected after observing the 2026 baseline. The one-parameter experiment should now be **frozen**, not tuned further on the same history. Freeze the `.set` SHA-256, original MQ5/EX5 hash, MT5 build and broker details before a genuinely future-dated demo-only test (e.g., from Nov 4 2026 broker-server time). Keep risk-based sizing disabled only for research; fixed 0.01 lot is NOT a 1% risk limit and is not validated for a $100–$200 account.
+
+**No source changes, no live approval, no broker orders are made by this documentation.**
