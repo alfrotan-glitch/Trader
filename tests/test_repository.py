@@ -48,13 +48,22 @@ class TraderPackageTests(unittest.TestCase):
         self.assertNotIn("OrderSend(", ps)
         self.assertNotIn("EnableAlgoTrading", ps)
 
-    def test_tester_requires_explicit_demo_acknowledgement(self):
+    def test_failed_auto_tester_launch_is_fail_closed(self):
+        """Regression: a start request must never reopen an unsynchronized MT5."""
         launcher = (ROOT / "RUN_TESTER.bat").read_text(encoding="utf-8")
         ps = (ROOT / "tools" / "setup_windows.ps1").read_text(encoding="utf-8")
-        self.assertIn("-LaunchTester", launcher)
-        self.assertIn("Read-Host", ps)
-        self.assertIn("if ($confirm -ne 'DEMO')", ps)
-        for required in ("Model=4", "Optimization=0", "UseCloud=0", "Deposit=3000", "ShutdownTerminal=1"):
+        diagnostic = (ROOT / "tools" / "diagnose_mt5.ps1").read_text(encoding="utf-8")
+        self.assertIn("diagnose_mt5.ps1", launcher)
+        self.assertNotIn("-LaunchTester", launcher)
+        self.assertNotIn("setup_windows.ps1", launcher)
+        self.assertIn("if ($LaunchTester)", ps)
+        self.assertIn("UNSAFE_AUTO_LAUNCH_DISABLED", ps)
+        self.assertNotIn("Start-Process -FilePath $terminal.Terminal", ps)
+        self.assertNotIn("Start-Process", diagnostic)
+        self.assertNotIn("Stop-Process", diagnostic)
+        self.assertIn("Get-WinEvent", diagnostic)
+        self.assertIn("not synchronized", diagnostic)
+        for required in ("Model=4", "Optimization=0", "UseCloud=0", "Deposit=3000"):
             self.assertIn(required, ps)
 
     def test_research_changes_explicitly_fail_closed(self):
