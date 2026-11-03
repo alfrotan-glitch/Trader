@@ -72,5 +72,38 @@ class TraderPackageTests(unittest.TestCase):
         self.assertIn("Source copy checksum mismatch", ps)
 
 
+    def test_github_windows_lf_crlf_integrity_contract(self):
+        """Only upstream LF or Git-for-Windows CRLF may pass each pinned SHA."""
+        ps = (ROOT / "tools" / "setup_windows.ps1").read_text(encoding="utf-8")
+        files = (
+            ("expectedSourceSha256", ROOT / "nyao_scalper.mq5"),
+            ("expectedPresetSha256", ROOT / "settings" / "xauusd-default.set"),
+        )
+        for name, path in files:
+            match = re.search(
+                r"\$" + name + r"\s*=\s*@\('([a-f0-9]{64})', '([a-f0-9]{64})'\)",
+                ps,
+            )
+            self.assertIsNotNone(match, name)
+            exact_allowed = set(match.groups())
+            self.assertEqual(len(exact_allowed), 2, name)
+            raw = path.read_bytes()
+            lf = raw.replace(b"\r\n", b"\n")
+            crlf = lf.replace(b"\n", b"\r\n")
+            self.assertEqual(
+                exact_allowed,
+                {hashlib.sha256(lf).hexdigest(), hashlib.sha256(crlf).hexdigest()},
+                name,
+            )
+            self.assertNotIn(hashlib.sha256(lf + b"tampered").hexdigest(), exact_allowed)
+            self.assertNotIn(hashlib.sha256(crlf + b"tampered").hexdigest(), exact_allowed)
+
+    def test_setup_uses_closed_allowlist_not_hash_bypass(self):
+        ps = (ROOT / "tools" / "setup_windows.ps1").read_text(encoding="utf-8")
+        self.assertIn("if ($presetSha -notin $expectedPresetSha256)", ps)
+        self.assertIn("if ($actualSha -notin $expectedSourceSha256)", ps)
+        self.assertIn("Source copy checksum mismatch", ps)
+
+
 if __name__ == "__main__":
     unittest.main()
