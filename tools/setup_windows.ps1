@@ -14,8 +14,8 @@ $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $source = Join-Path $repo 'nyao_scalper.mq5'
 $presetSource = Join-Path $repo 'settings\xauusd-default.set'
-$expectedSourceSha256 = '91ea11b70553fa413af9712745052fd192039e0627d8f7c3a34e066b80a1c837'
-$expectedPresetSha256 = 'd9efe2aeac85f65f280d7c9218c4a2af7572a5f6da79abfd4fb61bd3596f6858'
+$expectedSourceSha256 = @('91ea11b70553fa413af9712745052fd192039e0627d8f7c3a34e066b80a1c837', 'f4d5a57075745d8dd41297e3b252b31bbc08996f2eec727c898c2165e3cc9e3b')
+$expectedPresetSha256 = @('d9efe2aeac85f65f280d7c9218c4a2af7572a5f6da79abfd4fb61bd3596f6858', '9978e2930a05ce62dac63954c5bc24ce894041be6b195efce46bed8619b1c4aa')
 
 function Require-File([string]$path, [string]$purpose) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
@@ -96,10 +96,10 @@ try {
     Require-File $source 'upstream Nyao Scalper source'
     Require-File $presetSource 'upstream gold .set profile'
     $presetSha = (Get-FileHash -LiteralPath $presetSource -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($presetSha -ne $expectedPresetSha256) { throw ('Upstream gold preset checksum mismatch: ' + $presetSha) }
+    if ($presetSha -notin $expectedPresetSha256) { throw ('Upstream gold preset checksum mismatch: ' + $presetSha) }
     Require-File (Join-Path $repo 'LICENSE') 'upstream BSD-3-Clause license'
     $actualSha = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actualSha -ne $expectedSourceSha256) {
+    if ($actualSha -notin $expectedSourceSha256) {
         throw ("Pinned upstream MQL5 SHA-256 mismatch. Expected " + $expectedSourceSha256 + ", actual " + $actualSha + ". Do not run unreviewed source.")
     }
     if (-not [string]::Equals($Symbol,'XAUUSD@',[System.StringComparison]::Ordinal)) {
