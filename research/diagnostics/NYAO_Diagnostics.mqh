@@ -44,6 +44,12 @@ bool DxInit()
       return false;
    ArrayResize(_dxActive, 0);
    _dxWriteFailed = false;
+   // Do not silently overwrite a previous test's evidence.
+   if(FileIsExist(_dxPath, FILE_COMMON))
+   {
+      Print("[DX] STOP: existing ", _dxPath, ". Rename/archive it before the next test.");
+      return false;
+   }
    ResetLastError();
    _dxHandle = FileOpen(_dxPath, FILE_COMMON | FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_SHARE_READ, ',');
    if(_dxHandle == INVALID_HANDLE)
