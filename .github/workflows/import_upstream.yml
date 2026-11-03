@@ -1,0 +1,79 @@
+name: Import complete pinned Nyao Scalper project
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/import_upstream.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Trader main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download and pin original source at verified commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --quiet --no-checkout https://github.com/elrizwiraswara/nyao_scalper_mt5.git "$RUNNER_TEMP/nyao-upstream"
+          git -C "$RUNNER_TEMP/nyao-upstream" checkout --quiet --detach cf70e9e7f77a77d25554c60d66c44b1b39dbb396
+          test "$(git -C "$RUNNER_TEMP/nyao-upstream" rev-parse HEAD)" = "cf70e9e7f77a77d25554c60d66c44b1b39dbb396"
+          test "$(git -C "$RUNNER_TEMP/nyao-upstream" ls-files | wc -l)" -eq 970
+          python3 - <<'PY'
+          from pathlib import Path
+          from hashlib import sha256
+          import os
+          upstream=Path(os.environ["RUNNER_TEMP"])/"nyao-upstream"
+          checks={
+              "nyao_scalper.mq5":"91ea11b70553fa413af9712745052fd192039e0627d8f7c3a34e066b80a1c837",
+              "LICENSE":"d82d0b0bfb2772cebffdf912ea463252edcbbf7ca7b0946bbb7",
+              "settings/xauusd-default.set":"6ceea55c64265530405a1706ff845c015689b8308ca2236483ac3ce3733ebfd8",
+          }
+          for path,expected in checks.items():
+              actual=sha256((upstream/path).read_bytes()).hexdigest()
+              if actual!=expected:
+                  raise SystemExit("STOP: upstream source checksum mismatch "+path+": "+actual)
+          print("Pinned upstream revision, file count, and source checksums passed")
+          PY
+      - name: Copy original 970 files without modifying Trader launchers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from shutil import copy2
+          import os
+          source=Path(os.environ["RUNNER_TEMP"])/"nyao-upstream"
+          root=Path.cwd()
+          count=0
+          for file in source.rglob("*"):
+              if not file.is_file():
+                  continue
+              rel=file.relative_to(source)
+              if ".git" in rel.parts:
+                  continue
+              dst=root/rel
+              dst.parent.mkdir(parents=True,exist_ok=True)
+              copy2(file,dst)
+              count+=1
+          if count!=970:
+              raise SystemExit(f"Expected exactly 970 pinned vendor files, found {count}")
+          print(f"Imported {count} exact upstream files")
+          PY
+          printf '\n# Trader local tester outputs and builds\nlocal_runs/\n*.ex5\n*.log\n' >> .gitignore
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Already identical to pinned upstream; no commit necessary."
+          else
+            git commit -m "vendor: import full 970-file pinned Nyao Scalper project"
+            git push origin HEAD:main
+          fi
