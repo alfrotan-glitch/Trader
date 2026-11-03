@@ -49,6 +49,21 @@ jobs:
             exit 1
           }
           Write-Host 'PowerShell installer syntax verified; no broker process invoked.'
+      - name: Verify isolated entry-quality trial source and profile (no MT5 needed)
+        shell: powershell
+        run: |
+          $script = 'tools/install_entry_quality_trial.ps1'
+          $tokens = $null
+          $parseErrors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script).Path, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
+          Write-Host 'Entry trial script syntax valid.'
+          & .\tools\install_entry_quality_trial.ps1 -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { throw 'Entry trial source hash verification failed.' }
+          Write-Host 'Pinned trial, vendor original and research preset verified offline.'
       - name: Smoke-run read-only diagnostic without MT5 installed
         shell: powershell
         run: |
