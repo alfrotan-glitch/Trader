@@ -1,0 +1,18 @@
+# Compiled MQL5 binaries — ship as GitHub Release attachments instead of tracking
+*.ex5
+*.ex4
+
+# MetaEditor / compiler artifacts
+*.log
+*.tmp
+
+# Editor / extension local files
+.vscode/buraq-diagnostics.json
+
+# Backtest tool: optional raw MT5 reports (large)
+reports/*/raw/
+
+# Trader local tester outputs and builds
+local_runs/
+*.ex5
+*.log
