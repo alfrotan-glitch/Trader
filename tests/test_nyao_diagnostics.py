@@ -116,6 +116,17 @@ class DiagnosticIntegrityTests(unittest.TestCase):
         self.assertNotIn("Start-Process -FilePath $mt5.Terminal", installer)
         self.assertNotIn("OrderSend(", installer)
         self.assertIn("Original Nyao source changed", installer)
+        # MetaEditor build 6230+ can return exit code 1 after a clean one-file build.
+        # A successful result requires fresh nonempty EX5 + 0 errors/0 warnings log.
+        self.assertNotIn("$p.ExitCode -ne 0", installer)
+        self.assertIn("$logClean", installer)
+        self.assertIn("$codeGenerated", installer)
+        self.assertIn("$binaryExists", installer)
+        self.assertIn("$binaryFresh", installer)
+        self.assertIn("$binarySize -le 0", installer)
+        self.assertIn("0 errors", installer)
+        self.assertIn("0 warnings", installer)
+        self.assertIn("Remove-Item -LiteralPath $logPath -Force", installer)
 
     def test_strategy_preset_still_uses_same_one_input_change(self):
         from test_fresh_entry_efficiency import read_inputs, BASELINE, TRIAL
