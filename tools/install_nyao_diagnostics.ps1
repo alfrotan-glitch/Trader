@@ -118,22 +118,72 @@ try {
         (File-SHA $destPreset) -ne $profileHash) {
         throw 'Copied research files failed checksum verification.'
     }
+    # MetaEditor may return exit code 1 for a successful one-file compile.
+    # Its process exit code is NOT a reliable success indicator. Require BOTH
+    # a newly generated, nonempty binary AND an explicit clean compiler log.
+    $logPath = [IO.Path]::ChangeExtension($destSource, '.log')
     if (Test-Path -LiteralPath $destBinary -PathType Leaf) {
         Remove-Item -LiteralPath $destBinary -Force
+    }
+    if (Test-Path -LiteralPath $logPath -PathType Leaf) {
+        Remove-Item -LiteralPath $logPath -Force
     }
     $compileStart = Get-Date
     $params = @('/compile:"' + $destSource + '"','/log')
     $p = Start-Process -FilePath $mt5.Editor -ArgumentList $params -Wait -PassThru
-    $logPath = [IO.Path]::ChangeExtension($destSource, '.log')
     $logText = if (Test-Path -LiteralPath $logPath -PathType Leaf) {
         Get-Content -LiteralPath $logPath -Raw
     } else { '' }
-    if ($logText) { Copy-Item -LiteralPath $logPath -Destination (Join-Path $runDir 'compile.log') -Force }
-    if ($p.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $destBinary -PathType Leaf) -or
-        $logText -match '(?im)\b[1-9]\d* errors?\b' -or
-        ((Test-Path -LiteralPath $destBinary -PathType Leaf) -and
-         (Get-Item -LiteralPath $destBinary).LastWriteTime -lt $compileStart.AddSeconds(-3))) {
-        throw ('MetaEditor did not create a clean new EX5. Inspect: ' + (Join-Path $runDir 'compile.log'))
+    $copyLog = Join-Path $runDir 'compile.log'
+    if ($logText) { Copy-Item -LiteralPath $logPath -Destination $copyLog -Force }
+    $binaryExists = Test-Path -LiteralPath $destBinary -PathType Leaf
+    $binarySize = if ($binaryExists) { (Get-Item -LiteralPath $destBinary).Length } else { 0 }
+    $binaryFresh = if ($binaryExists) {
+        (Get-Item -LiteralPath $destBinary).LastWriteTime -ge $compileStart.AddSeconds(-3)
+    } else { $false }
+    $logClean = $logText -match '(?im)^\s*Result:\s*0 errors,\s*0 warnings\b'
+    $codeGenerated = $logText -match '(?im)^\s*:\s*information:\s*code generated\s*
+    $receipt = [ordered]@{
+        verdict = 'DIAGNOSTIC_COMPILED__NOT_BACKTESTED__LIVE_LOCKED'
+        source_sha256 = $sourceHash
+        module_sha256 = $headerHash
+        preset_sha256 = $profileHash
+        vendor_sha256 = $origHash
+        ex5_sha256 = File-SHA $destBinary
+        terminal = $mt5.Terminal
+        data_folder = $mt5.Data
+        profile = $destPreset
+        output_csv_when_tested = Join-Path $env:APPDATA 'MetaQuotes\Terminal\Common\Files\NYAO_ENTRY_DIAGNOSTICS.csv'
+        started_terminal = $false
+        sent_orders = $false
+    }
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText((Join-Path $runDir 'receipt.json'),($receipt | ConvertTo-Json -Depth 5),$utf8)
+    Write-Host ''
+    Write-Host 'PASS: compiled research-only EA. Main Nyao EA NOT replaced.'
+    Write-Host 'In DEMO MT5 Strategy Tester select Expert: TraderResearch\nyao_scalper_diagnostic'
+    Write-Host ('Load Inputs preset: ' + $destPreset)
+    Write-Host ('CSV output after manual TEST: ' + $receipt.output_csv_when_tested)
+    Write-Host ('Compile evidence: ' + $runDir)
+    Write-Host 'Terminal was NOT launched; no orders were sent. LIVE remains LOCKED.'
+    exit 0
+} catch {
+    Write-Host ('STOP: ' + $_.Exception.Message) -ForegroundColor Red
+    Write-Host 'This script cannot enable live trading and has not started the terminal.'
+    exit 2
+}
+
+    Write-Host ('MetaEditor exit code (informational): ' + $p.ExitCode)
+    Write-Host ('Compiler summary clean: ' + $logClean)
+    Write-Host ('Code generation finished: ' + $codeGenerated)
+    Write-Host ('EX5 exists: ' + $binaryExists + ' | bytes: ' + $binarySize + ' | newly written: ' + $binaryFresh)
+    if (-not $logClean -or -not $codeGenerated -or -not $binaryExists -or
+        $binarySize -le 0 -or -not $binaryFresh) {
+        throw ('Compile artifact verification failed. Inspect ' + $copyLog +
+               '. MetaEditor code=' + $p.ExitCode +
+               ', clean_log=' + $logClean + ', code_generated=' + $codeGenerated +
+               ', ex5_exists=' + $binaryExists + ', ex5_bytes=' + $binarySize +
+               ', ex5_fresh=' + $binaryFresh)
     }
     $receipt = [ordered]@{
         verdict = 'DIAGNOSTIC_COMPILED__NOT_BACKTESTED__LIVE_LOCKED'
