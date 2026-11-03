@@ -34,7 +34,16 @@ jobs:
         run: |
           $tokens = $null
           $errors = $null
-          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path 'tools/setup_windows.ps1').Path, [ref]$tokens, [ref]$errors)
+          foreach ($file in @('tools/setup_windows.ps1', 'tools/diagnose_mt5.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file).Path, [ref]$tokens, [ref]$errors)
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error ($file + ': ' + $_.Message) }
+              exit 1
+            }
+            Write-Host ("Passed syntax: " + $file)
+          }
           if ($errors.Count -gt 0) {
             $errors | ForEach-Object { Write-Error $_.Message }
             exit 1
