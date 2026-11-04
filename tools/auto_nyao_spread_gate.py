@@ -119,6 +119,7 @@ def run(args: argparse.Namespace) -> int:
             f.write(message + "\n")
 
     started = time.time()
+    zip_packaging_failed = False
     terminal, data = None, None
     auto_started, closed_for_tests, was_running = False, False, False
     installed: list[Path] = []
@@ -171,6 +172,13 @@ def run(args: argparse.Namespace) -> int:
             reports.append(copy_report(data, terminal, label, run_dir / folder, since))
         evidence = validate_pair(*reports)
         state["comparison"] = evidence
+        state["candidate_risk_review"] = {
+            "equity_dd_delta_percentage_points": round(
+                evidence["trial"]["dd_pct"] - evidence["baseline"]["dd_pct"], 2
+            ),
+            "candidate_promoted": False,
+            "reason": "In-sample improvement alone cannot validate forward profitability; inspect drawdown and trade concentration",
+        }
         state["verdict"] = (
             "HISTORICAL_AB_VALID__FORWARD_NOT_VALIDATED__LIVE_LOCKED"
             if evidence["previous_709_reference_reproduced"] else
@@ -179,6 +187,8 @@ def run(args: argparse.Namespace) -> int:
         note(f"Control net USD {evidence['baseline']['net']:.2f}, "
              f"trial net USD {evidence['trial']['net']:.2f}, "
              f"delta USD {evidence['delta_net_usd']:+.2f}")
+        note(f"Equity max DD: {evidence['baseline']['dd_pct']:.2f}% -> "
+             f"{evidence['trial']['dd_pct']:.2f}% (not approved for live)")
         note("HISTORICAL ONLY: no forward validation, no live approval")
     except (Exception, KeyboardInterrupt) as exc:
         state["errors"].append(f"{type(exc).__name__}: {exc}")
@@ -225,8 +235,10 @@ def run(args: argparse.Namespace) -> int:
             note("Upload this ONE evidence ZIP: " + str(zip_path))
             note("VERDICT: " + state["verdict"])
         except Exception as exc:
+            zip_packaging_failed = True
             note(f"ZIP failure: {exc}; results retained at {run_dir}")
-            return 3
+    if zip_packaging_failed:
+        return 3
     return 0 if state["verdict"].startswith("HISTORICAL_AB_VALID") else 2
 
 
