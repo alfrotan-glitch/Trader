@@ -55,7 +55,7 @@ def compile_tester_trial(terminal: Path, data: Path, session: Path) -> Path:
     binary = source.with_suffix(".ex5")
     log = source.with_suffix(".log")
     content = guarded_control_source(TRIAL_SOURCE.read_text(encoding="utf-8"))
-    if content.count("if(!MQLInfoInteger(MQL_TESTER)") != 1:
+    if content.count("// RESEARCH CONTROL: never run on a normal chart or in optimization.") != 1:
         raise GuardFailure("No unique MQL5 tester-only trial safety guard")
     source.write_text(content, encoding="utf-8")
     for old in (binary, log):
