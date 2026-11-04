@@ -72,7 +72,10 @@ class SpreadGateTests(unittest.TestCase):
         with patch.object(experiment, "validated_native_report",
                           side_effect=[(base_metrics, first), (trial_metrics, second)]), \
              patch.object(experiment, "native_deal_rows",
-                          side_effect=[[("a",)] * 1418, [("b",)] * 1416]):
+                          side_effect=[[("a",)] * 1418, [("b",)] * 1416]), \
+             patch.object(experiment, "native_identity",
+                          side_effect=[{"symbol": "XAUUSD@", "period": "M5 (2026.01.01 - 2026.11.02)"},
+                                       {"symbol": "XAUUSD@", "period": "M5 (2026.01.01 - 2026.11.02)"}]):
             out = experiment.validate_pair(Path("base.htm"), Path("trial.htm"))
         self.assertEqual(out["delta_net_usd"], 18.56)
         self.assertEqual(set(out["only_native_input_difference"]), {"MaxSpreadPoints"})
