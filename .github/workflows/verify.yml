@@ -103,6 +103,26 @@ jobs:
           } finally { $archive.Dispose() }
           Write-Host 'PASS: failed safely and packaged evidence without MetaTrader installation.'
           exit 0
+      - name: Historical four-regime one-click must fail closed without installed DEMO MT5
+        shell: powershell
+        run: |
+          & .\RUN_NYAO_HISTORICAL_STRESS.bat
+          if ($LASTEXITCODE -ne 2) { throw 'Expected safe research abort on CI without installed MT5' }
+          $zips = @(Get-ChildItem -File 'NYAO_HISTORICAL_STRESS_EVIDENCE_*.zip' -ErrorAction SilentlyContinue)
+          if ($zips.Count -ne 1) { throw ('Expected exactly one failure ZIP, found ' + $zips.Count) }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zips[0].FullName)
+          try {
+            $names = @($archive.Entries | ForEach-Object { $_.FullName })
+            if ('manifest.json' -notin $names -or 'failure_trace.txt' -notin $names -or 'READ_ME_FIRST.txt' -notin $names) {
+              throw 'Historical failure ZIP missing mandatory evidence'
+            }
+            if (@($names | Where-Object { $_ -match '(?i)\.ini$|password|token|archive/' }).Count -gt 0) {
+              throw 'Historical evidence ZIP exposed a private file'
+            }
+          } finally { $archive.Dispose() }
+          Write-Host 'PASS: historical research launcher fails closed without MT5, safe evidence ZIP produced.'
+          exit 0
       - name: Future-only replay must fail closed and package evidence without DEMO MT5
         shell: powershell
         run: |
