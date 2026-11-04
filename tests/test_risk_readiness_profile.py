@@ -61,5 +61,26 @@ class RiskReadinessExperiment(unittest.TestCase):
         self.assertNotIn("RiskPerTradePct=2.0", text)
 
 
+    def test_demo_5pct_preset_changes_only_coupled_risk_inputs(self):
+        demo = ROOT / "research/risk_readiness/Trader_RISK5_CAP5_ER015_DEMO_ONLY.set"
+        a, b = parse(TRIAL), parse(demo)
+        self.assertEqual(len(b), 172)
+        self.assertEqual(set(a), set(b))
+        changed = {key: (a[key], b[key]) for key in a if a[key] != b[key]}
+        self.assertEqual(changed, {
+            "RiskPerTradePct": ("0.5", "5.0"),
+            "MaxRiskPerTradePct": ("1.0", "5.0"),
+        })
+        self.assertEqual(b["SLInputType"], "2")
+        self.assertEqual(b["SLValue"], "20000")
+        self.assertEqual(b["BaseLotSize"], "0.01")
+        self.assertEqual(b["MaxLotSize"], "0.02")
+        self.assertEqual(b["MinEfficiencyToTrade"], "0.15")
+        self.assertEqual(b["EnableCheckpointExit"], "true")
+        notes = demo.read_text(encoding="utf-8")
+        self.assertIn("not extra stop-loss distance", notes)
+        self.assertIn("NOT LIVE APPROVED", notes)
+
+
 if __name__ == "__main__":
     unittest.main()
