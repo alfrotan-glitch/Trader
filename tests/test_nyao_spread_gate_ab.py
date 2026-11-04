@@ -65,10 +65,10 @@ class SpreadGateTests(unittest.TestCase):
         common = {f"FakeField{i}": str(i) for i in range(170)}
         first = dict(common, MaxSpreadPoints="500")
         second = dict(common, MaxSpreadPoints="400")
-        base_metrics = {"trades": 709, "net": 1091.44,
-                        "tested_range": "M5 (2026.01.01 - 2026.11.02)"}
-        trial_metrics = {"trades": 708, "net": 1110.00,
-                         "tested_range": "M5 (2026.01.01 - 2026.11.02)"}
+        base_metrics = {"trades": 709, "net": 1091.44, "deposit": 3000,
+                        "tested_range": "XAUUSD@,M5 (2026.01.01 - 2026.11.02)"}
+        trial_metrics = {"trades": 708, "net": 1110.00, "deposit": 3000,
+                         "tested_range": "XAUUSD@,M5 (2026.01.01 - 2026.11.02)"}
         with patch.object(experiment, "validated_native_report",
                           side_effect=[(base_metrics, first), (trial_metrics, second)]), \
              patch.object(experiment, "native_deal_rows",
