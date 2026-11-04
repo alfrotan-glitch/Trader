@@ -137,6 +137,36 @@ def verify_future_history_coverage(terminal: Path, dates: tuple[str, str]) -> di
         mt5.shutdown()
 
 
+def native_identity(path: Path) -> dict[str, str]:
+    """Read symbol and period as TWO SEPARATE native MT5 HTML header fields."""
+    from html import unescape
+    from backtest.nyao_backtest import read_text_any
+
+    document = read_text_any(path)
+    result: dict[str, str] = {}
+    for block in re.findall(r"(?is)<tr\b[^>]*>(.*?)</tr>", document):
+        cells = [
+            unescape(re.sub(r"(?is)<[^>]*>", "", raw)).replace("\xa0", " ").strip()
+            for raw in re.findall(r"(?is)<td\b[^>]*>(.*?)</td>", block)
+        ]
+        if len(cells) != 2 or cells[0] not in ("Symbol:", "Period:"):
+            continue
+        key = cells[0].removesuffix(":").lower()
+        if key in result:
+            raise GuardFailure(f"Duplicate native MT5 {key} heading")
+        result[key] = cells[1]
+    if set(result) != {"symbol", "period"}:
+        raise GuardFailure("Native MT5 HTML missing separate Symbol / Period headings")
+    if result["symbol"] != "XAUUSD@":
+        raise GuardFailure(f"Wrong native MT5 symbol: {result['symbol']!r}")
+    if not re.fullmatch(
+        r"M5 \(\d{4}\.\d{2}\.\d{2} - \d{4}\.\d{2}\.\d{2}\)",
+        result["period"],
+    ):
+        raise GuardFailure(f"Wrong native MT5 timeframe/window: {result['period']!r}")
+    return result
+
+
 def validate_pair(control_path: Path, trial_path: Path,
                   expected_dates: tuple[str, str] | None = None) -> dict:
     base, b = validated_native_report(control_path)
@@ -151,17 +181,22 @@ def validate_pair(control_path: Path, trial_path: Path,
         raise GuardFailure("Native report test windows differ")
     if abs(base.get("deposit", 0) - 3000) > .001 or abs(trial.get("deposit", 0) - 3000) > .001:
         raise GuardFailure("Native reports have non-frozen initial deposit")
-    if "XAUUSD@" not in str(base.get("tested_range", "")) or "M5" not in str(base.get("tested_range", "")):
-        raise GuardFailure("Native report has non-frozen symbol or chart period")
+    base_identity = native_identity(control_path)
+    trial_identity = native_identity(trial_path)
+    if base_identity != trial_identity:
+        raise GuardFailure("Native symbol/timeframe or period differs between A/B")
+    if base_identity["period"] != str(base.get("tested_range", "")):
+        raise GuardFailure("Native period header and parsed summary disagree")
     if expected_dates is not None:
-        expected_label = f"({expected_dates[0]} - {expected_dates[1]})"
-        if expected_label not in str(base.get("tested_range", "")):
+        expected_period = f"M5 ({expected_dates[0]} - {expected_dates[1]})"
+        if base_identity["period"] != expected_period:
             raise GuardFailure("Native report did not use preregistered future-only dates")
     a_deals, b_deals = native_deal_rows(control_path), native_deal_rows(trial_path)
     if len(a_deals) != 2 * base["trades"] or len(b_deals) != 2 * trial["trades"]:
         raise GuardFailure("Native deal table does not reconcile to trade counts")
     return {
         "baseline": base, "trial": trial,
+        "native_identity": base_identity,
         "only_native_input_difference": diffs,
         "control_deal_rows": len(a_deals),
         "trial_deal_rows": len(b_deals),
