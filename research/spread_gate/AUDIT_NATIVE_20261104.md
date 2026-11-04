@@ -2,7 +2,7 @@
 
 **Historical improvement observed, but NOT approved for live or promotion.** LIVE LOCKED.
 
-Evidence: uploaded NYAO_SPREAD_GATE_EVIDENCE_20261104_112021_994.zip. Archive CRC verified, all 14 recorded SHA-256 hashes match, and both native MT5 HTML reports parsed independently. WMMarkets Demo XAUUSD@ M5, 2026-01-01 to 2026-11-02, 100% real ticks, USD 3000 starting balance. Native 171 input fields differ ONLY in MaxSpreadPoints (500 baseline vs 400 trial); both run the same tester-only guarded original EA. Baseline replays 709 / +USD1091.44.
+Evidence: uploaded NYAO_SPREAD_GATE_EVIDENCE_20261104_112021_994.zip. Archive CRC verified, all 15 recorded SHA-256 hashes match, and both native MT5 HTML reports parsed independently. WMMarkets Demo XAUUSD@ M5, 2026-01-01 to 2026-11-02, 100% real ticks, USD 3000 starting balance. Native 171 input fields differ ONLY in MaxSpreadPoints (500 baseline vs 400 trial); both run the same tester-only guarded original EA. Baseline replays 709 / +USD1091.44.
 
 | Metric | Baseline 500 | Trial 400 |
 |---|---:|---:|
