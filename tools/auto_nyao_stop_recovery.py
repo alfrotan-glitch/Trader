@@ -208,6 +208,32 @@ def copy_fresh_csvs(common: Path, out: Path, started: float) -> dict[str, Path]:
     return result
 
 
+
+def capture_native_compiler_evidence(run_dir: Path, started: float) -> None:
+    """Include local MetaEditor compile.log and receipt when this launcher invoked it."""
+    folder = ROOT / "local_runs" / "diagnostics"
+    if not folder.is_dir():
+        return
+    candidates = sorted((p for p in folder.iterdir() if p.is_dir()),
+                        key=lambda p: p.stat().st_mtime, reverse=True)
+    for candidate in candidates:
+        receipt = candidate / "receipt.json"
+        log = candidate / "compile.log"
+        if not (receipt.is_file() or log.is_file()):
+            continue
+        fresh = any(p.is_file() and p.stat().st_mtime >= started - 3
+                    for p in (receipt, log))
+        if not fresh:
+            continue
+        destination = run_dir / "native_compile"
+        destination.mkdir(exist_ok=True)
+        if log.is_file():
+            shutil.copy2(log, destination / "compile.log")
+        if receipt.is_file():
+            shutil.copy2(receipt, destination / "receipt.json")
+        return
+
+
 def capture_filtered_logs(data: Path, run_dir: Path, started: float) -> None:
     """Small sanitized diagnostic excerpts, not the user's full terminal/account logs."""
     lines: list[str] = []
@@ -286,6 +312,8 @@ def run(args: argparse.Namespace) -> int:
         "live_trading_permitted": False,
         "expected_trades": EXPECTED_TRADES,
         "expected_net_usd": EXPECTED_NET,
+        "reference_sl_comment_loss_count": EXPECTED_STOP_LOSSES,
+        "stop_watch_count_is_derived_from_native_deal_reason": True,
         "errors": [],
     }
     log = run_dir / "runner.log"
@@ -392,7 +420,6 @@ def run(args: argparse.Namespace) -> int:
         stop_ok = run_analyzer([
             str(ROOT / "research" / "stop_recovery" / "analyze_tick_recovery.py"),
             str(files[STOP_CSV]), "--entry-csv", str(files[ENTRY_CSV]),
-            "--expected-stops", str(EXPECTED_STOP_LOSSES),
             "--output", str(stop_out)
         ], run_dir / "stop_analyzer.log")
         state["entry_analyzer_passed"] = entry_ok
@@ -419,6 +446,7 @@ def run(args: argparse.Namespace) -> int:
         if proc is not None and proc.poll() is None:
             proc.kill()
             proc.wait(timeout=30)
+        capture_native_compiler_evidence(run_dir, started)
         if data is not None:
             capture_filtered_logs(data, run_dir, session_start)
         if closed_for_test and was_running and terminal is not None:
