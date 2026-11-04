@@ -23,6 +23,29 @@ OUT = ROOT / "local_runs" / "spread_gate"
 SOURCE_PRESET = ROOT / "research" / "fresh_entry" / PRESET
 BASE_SHA256 = "01ff7552131c2601e08718d5ec6a3223578a69c33f67d59cfd76d10effe79089"
 INPUT = "MaxSpreadPoints"
+FORWARD_START = dt.date(2026, 11, 5)  # First FULL UTC day after freeze, never tune on it
+MIN_FORWARD_DAYS = 30
+
+
+def derive_forward_dates(today_utc: dt.date | None = None) -> tuple[str, str]:
+    """Prospective boundary fixed at design time; use only settled UTC days.
+
+    UTC-2-day end is conservative with an unverified broker-server timezone.
+    Native report period and local price-history coverage are checked later.
+    """
+    today_utc = today_utc or dt.datetime.now(dt.timezone.utc).date()
+    last_settled = today_utc - dt.timedelta(days=2)
+    days = (last_settled - FORWARD_START).days
+    if days < MIN_FORWARD_DAYS:
+        raise GuardFailure(
+            f"WAITING_FOR_FUTURE_DATA: need >= {MIN_FORWARD_DAYS} elapsed "
+            f"settled days from {FORWARD_START.isoformat()}; "
+            f"latest safe UTC end is {last_settled.isoformat()}. "
+            "Do not backfill dates from the inspected 2026 sample."
+        )
+    return FORWARD_START.strftime("%Y.%m.%d"), last_settled.strftime("%Y.%m.%d")
+
+
 
 
 def profile_inputs(content: str) -> dict[str, str]:
@@ -59,15 +82,31 @@ def frozen_profiles(content: str) -> tuple[str, str]:
     return content, trial
 
 
-def config_for(login: int, server: str, label: str, name: str) -> str:
+def config_for(login: int, server: str, label: str, name: str,
+               dates: tuple[str, str] | None = None) -> str:
     config = make_tester_ini(login, server, label, CONTROL_EXPERT)
     expected = f"ExpertParameters={PRESET}"
     if config.count(expected) != 1 or not name.startswith("Trader_SPREAD_"):
         raise GuardFailure("Could not pin trial .set name")
-    return config.replace(expected, f"ExpertParameters={name}")
+    config = config.replace(expected, f"ExpertParameters={name}")
+    if dates is not None:
+        start, end = dates
+        if start != FORWARD_START.strftime("%Y.%m.%d"):
+            raise GuardFailure("Out-of-sample start cannot be moved into inspected history")
+        if not re.fullmatch(r"\d{4}\.\d\d\.\d\d", end):
+            raise GuardFailure("Invalid forward end date")
+        if (dt.datetime.strptime(end, "%Y.%m.%d").date() - FORWARD_START).days < MIN_FORWARD_DAYS:
+            raise GuardFailure("Insufficient forward data duration")
+        for name, value in (("FromDate", start), ("ToDate", end)):
+            original = re.search(rf"(?m)^{name}=\d{{4}}\.\d\d\.\d\d$", config)
+            if original is None:
+                raise GuardFailure("Missing or ambiguous tester date: " + name)
+            config = config.replace(original.group(0), f"{name}={value}", 1)
+    return config
 
 
-def validate_pair(control_path: Path, trial_path: Path) -> dict:
+def validate_pair(control_path: Path, trial_path: Path,
+                  expected_dates: tuple[str, str] | None = None) -> dict:
     base, b = validated_native_report(control_path)
     trial, t = validated_native_report(trial_path)
     diffs = {k: [b.get(k), t.get(k)] for k in b.keys() | t.keys()
@@ -78,6 +117,10 @@ def validate_pair(control_path: Path, trial_path: Path) -> dict:
         raise GuardFailure("Native HTML did not apply intended spread values")
     if base.get("tested_range") != trial.get("tested_range"):
         raise GuardFailure("Native report test windows differ")
+    if expected_dates is not None:
+        expected_label = f"({expected_dates[0]} - {expected_dates[1]})"
+        if expected_label not in str(base.get("tested_range", "")):
+            raise GuardFailure("Native report did not use preregistered future-only dates")
     a_deals, b_deals = native_deal_rows(control_path), native_deal_rows(trial_path)
     if len(a_deals) != 2 * base["trades"] or len(b_deals) != 2 * trial["trades"]:
         raise GuardFailure("Native deal table does not reconcile to trade counts")
