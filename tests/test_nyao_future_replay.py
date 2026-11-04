@@ -57,10 +57,39 @@ class FrozenForwardAndStopsTests(unittest.TestCase):
         trial = {"trades": 1, "net": 11.0, "deposit": 3000,
                  "tested_range": base["tested_range"]}
         with patch.object(future, "validated_native_report",
-                          side_effect=[(base, b), (trial, t)]):
+                          side_effect=[(base, b), (trial, t)]), \
+             patch.object(future, "native_identity",
+                          side_effect=[{"symbol": "XAUUSD@", "period": base["tested_range"]},
+                                       {"symbol": "XAUUSD@", "period": base["tested_range"]}]):
             with self.assertRaisesRegex(future.GuardFailure, "preregistered future-only"):
                 future.validate_pair(Path("base.htm"), Path("trial.htm"),
                                      ("2026.11.05", "2026.12.06"))
+
+    def test_native_symbol_and_period_are_separate_html_fields(self):
+        html_doc = (
+            "<html><table>"
+            '<tr><td colspan="3">Symbol:</td><td colspan="10"><b>XAUUSD@</b></td></tr>'
+            '<tr><td colspan="3">Period:</td>'
+            '<td colspan="10"><b>M5 (2026.01.01 - 2026.03.31)</b></td></tr>'
+            "</table></html>"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            file = Path(temp) / "native_report.htm"
+            file.write_text(html_doc, encoding="utf-8")
+            identity = future.native_identity(file)
+            self.assertEqual(identity, {
+                "symbol": "XAUUSD@",
+                "period": "M5 (2026.01.01 - 2026.03.31)",
+            })
+            file.write_text(html_doc.replace("XAUUSD@", "EURUSD"), encoding="utf-8")
+            with self.assertRaisesRegex(future.GuardFailure, "Wrong native MT5 symbol"):
+                future.native_identity(file)
+            file.write_text(html_doc.replace("M5 (", "M1 ("), encoding="utf-8")
+            with self.assertRaisesRegex(future.GuardFailure, "timeframe"):
+                future.native_identity(file)
+            file.write_text(html_doc.replace("Symbol:", "Period:"), encoding="utf-8")
+            with self.assertRaises(future.GuardFailure):
+                future.native_identity(file)
 
     def test_actual_SL_exit_gap_is_directional_and_not_just_stop_label(self):
         source = ("<html><table>"
