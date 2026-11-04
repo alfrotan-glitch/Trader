@@ -1,0 +1,57 @@
+# Nyao v54 — stop timing and post-stop recovery audit (2026-11-04)
+
+**Research only. No EA source/config changed. LIVE LOCKED.**
+Source: user-supplied WMMarkets-Demo Build 6230 HTML Strategy Tester reports `ReportTester-20282400.html` (0% risk target, 0.01 lot control) and `ReportTester-20282400(3).html` (5% target, 5% tolerance, all 0.02 lot), XAUUSD@ M5 2026-01-01 through 2026-11-02, 100% real ticks, same 68,054,566 underlying test ticks, $3,000 initial deposit, 1:100 leverage.
+
+## Exact source / entry-order facts
+
+- `EnableRiskReward=false`: `RiskRewardRatio=1.5` is **not applied**.
+- `SLInputType=2`, `SLValue=20000`: **every one** of the 718 control and 674 5%-trial entry orders has an initial broker SL exactly **20.00 XAUUSD quote-price units** from actual fill, regardless of buy/sell or volume. Confirmed by joining entry deal `order` IDs to order-register `S/L` and calculating direction-aware distance.
+- `TPInputType=2`, `TPValue=20000`, `EnableTakeProfit=true`, `EnableCheckpointExit=true`: first **virtual** profit checkpoint also 20 XAUUSD price units; **all** 718/674 initial broker T/P fields are blank. Nominal target-to-stop distance is 1:1, but **effective realized R:R is variable**, due to moved SL, checkpoint hold, early trend-flip close and gaps.
+- Typical planned full stop: ~USD 20 at 0.01 lot; ~USD 40 at 0.02 lot, before slippage. April 13 fill at the stop was much worse.
+
+## Loss-making SL exits vs misleading `sl` label
+
+| Measure | Baseline 0.01 lot | 5%-target 0.02 lot trial |
+| --- | ---: | ---: |
+| Total trades | 718 | 674 |
+| All exits labelled `sl` | 672 | 653 |
+| True negative-net `sl` exits | **371** | **366** |
+| Positive-net `sl` exits due to moved stops | 293 | 279 |
+| Near-zero `sl` exits | 8 | 8 |
+| Median holding time, negative `sl` exits | 45m 10s | **45m 37s** |
+| Negative `sl` exits under 5 minutes | 27 | 25 |
+| Negative `sl` exits under 15 minutes | 80 | 78 |
+| Negative `sl` exits under 30 minutes | 136 | 131 |
+| Negative `sl` exits under 60 minutes | 217 | 209 |
+
+Of 366 negative SL exits in the 5%-target trial, **209 (57.1%)** happened under 60 min and **78 (21.3%)** under 15 min. Approximately **182/366** closed at adverse 19–21 price units, near the original full stop; other stops closed after less adverse movement due to profit-protection/stop-management logic. Labels alone do not reveal complete sequence of stop modifications.
+
+## Post-stop reversal: confirmed LOWER BOUND from later executed deal-price observations
+
+The HTML/Excel reports contain deals but **do not contain continuous tick-by-tick prices after closure**. We therefore extracted all timestamped later `XAUUSD@` executed deal prices (not chart line coordinates), and for each negative `sl` exit sampled only the **correct executable quote side**: later `sell` deal price (BID) for a former BUY, and later `buy` deal price (ASK) for a former SELL. Starting strictly **after** stop-exit time, check for observations on the profit side of the **original entry fill**: 0 = break-even level, +5 = 5 gold-price-unit favorable move, +20 = original checkpoint. Exclude commission/swap from target price definitions; a +5 quote may not equal net +$5 after costs. Identify the **earliest observed qualifying deal print**, which is **not** the unknown exact first tick that crossed the threshold. Count only positive evidence: absence of later matching deal prints does **not** prove absence of a real market rebound.
+
+**5% trial / 366 true loss-making SL exits:**
+
+| Minimum confirmed return observed after exit | Within 1 hour | Within 4 hours | Within 24 hours |
+| --- | ---: | ---: | ---: |
+| To original entry price or beyond | **28** | **109** | **215** |
+| To 5 quote-price units past entry | 25 | 94 | 198 |
+| To 20 quote-price units past entry (virtual checkpoint) | **12** | **53** | **156** |
+
+Observation coverage is sparse and not equally distributed across periods; do not extrapolate these lower bounds to actual probabilities of reversals. Do not extrapolate to the market's actual probability of reversals. The corresponding 0.01-lot control, 371 negative `sl` exits, yielded a **lower bound** of 35/117/223 returns to original entry and 14/57/157 returns to +20 within 1h/4h/24h.
+
+**Selected first OBSERVED (not necessarily first actual) rebound examples, in broker-server time:**
+
+1. **2026-04-13 SELL:** entry 4686.34 at 01:00:01; exited 4757.26 at 01:00:06 (**5 sec**, trial -USD 141.84). Later **BUY deal ASK 4660.21 at 01:50:05** (**49m59s after exit**), i.e. below original SELL entry by 26.13 quote-price units. Extreme stop slippage; simply widening a stop is not established as safe or profitable.
+2. **2026-03-19 SELL:** entry 4557.98 14:50:00, exited 4577.99 14:55:32 (**5m32s**, -USD 40.02). Later BUY deal ASK **4524.00** at 15:03:38 (**8m06s after stop**), 33.98 quote-price units beyond old entry in favorable direction.
+3. **2026-03-23 SELL:** entry 4205.88 at 08:50:00, exited 4225.88 at 08:51:40 (**1m40s**, -USD 40.00). Later BUY deal ASK **4153.12** at 09:09:31 (**17m51s after stop**), 52.76 favorable price units beyond the old entry.
+4. **2026-02-03 BUY:** entry 4812.47 at 03:05:00, exited 4792.13 at 03:06:02 (**1m02s**, -USD 40.68). Later SELL deal BID **4835.47** at 03:38:23 (**32m21s after stop**), 23.00 units favorable beyond old entry.
+
+These are measured subsequent executable-price observations, NOT backtested hypothetical holds. A wider stop changes drawdown, margin, trade availability, and checkpoint exits, so it is unsound to claim all such stopped trades would have become profitable if allowed to hold.
+
+## What is still not identifiable from these reports
+
+For each stop, the first actual tick crossing back through entry, maximum favorable excursion within a specified window after the stop, maximum adverse excursion before rebound, full bid/ask spread chronology, or whether a wider stop would have been filled / caused margin issues **cannot** be reconstructed exactly from MT5 deal HTML reports. A **separate read-only tick replay / historical broker tick export with server-time mapping** is required to make per-position `first_return_entry_timestamp`, `first_plus5_timestamp`, `first_plus20_timestamp` and `max_adverse_before_return` reliable. The already built `NYAO_ENTRY_DIAGNOSTICS.csv` samples in-position MFE/MAE but does **not** monitor ticks **after** an exit; it is insufficient for this after-stop question.
+
+**Decision:** keep baseline checkpoint/ER0.15 research setup; do not raise per-trade monetary risk, widen SL arbitrarily, disable stops or add new indicators on this historical sample. First validate after-stop paths on exact ticks and then preregister at most one change to stop placement with volume reduced to hold constant expected monetary risk. Existing symbol-metadata fail-open safety defect must be addressed before live approval.
