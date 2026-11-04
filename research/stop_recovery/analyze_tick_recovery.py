@@ -151,15 +151,26 @@ def analyze(
             if not reader.fieldnames or not required.issubset(reader.fieldnames):
                 raise ValueError("Missing entry-diagnostic columns")
             entry_rows = list(reader)
-        if any(r.get("status") != "CLOSED" for r in entry_rows):
-            raise ValueError("Incomplete entry evidence; cannot reconcile")
+        unresolved = [r for r in entry_rows if r.get("status") != "CLOSED"]
+        # MT5 can close its final position AFTER the Expert's OnDeinit callback.
+        # In this case the EA cannot see the broker's end-of-test exit deal.
+        # Do not invent a result or mark the complete entry ledger reconciled.
+        if unresolved:
+            if len(unresolved) != 1 or entry_rows[-1] is not unresolved[0] or \
+               unresolved[0]["status"] != "OPEN_AT_DEINIT_UNRESOLVED" or \
+               unresolved[0].get("exit_reason_code") or \
+               unresolved[0].get("net_profit_usd") or \
+               unresolved[0]["ticket"] in tickets:
+                raise ValueError("Unexplained or multiple incomplete entry records")
         targets = {r["ticket"] for r in entry_rows
-                   if r["exit_reason_code"] == "4" and
+                   if r["status"] == "CLOSED" and r["exit_reason_code"] == "4" and
                    float(r["net_profit_usd"]) < -0.005}  # MQL5 DEAL_REASON_SL
         match = {
             "eligible_negative_broker_sl": len(targets),
             "missing_stop_watches": sorted(targets - tickets),
             "unexpected_stop_watches": sorted(tickets - targets),
+            "end_of_test_unresolved_positions": [r["ticket"] for r in unresolved],
+            "entry_ledger_complete": not unresolved,
         }
     if expected_stops is not None and len(tickets) != expected_stops:
         raise ValueError(
@@ -168,7 +179,8 @@ def analyze(
     reconciled = (match is None or (
         not match["missing_stop_watches"] and not match["unexpected_stop_watches"]
     ))
-    full = all(r["status"] == "WINDOW_ELAPSED" for r in rows)
+    full = all(r["status"] == "WINDOW_ELAPSED" for r in rows) and \
+           (match is None or match["entry_ledger_complete"])
     verdict = ("RECONCILED_24H_OBSERVED" if reconciled and full
                else "RECONCILED_WITH_CENSORED_OR_GAPS" if reconciled
                else "INCOMPLETE_EVIDENCE")
