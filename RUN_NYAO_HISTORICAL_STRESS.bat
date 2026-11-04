@@ -9,7 +9,7 @@ echo NO WAIT FOR FUTURE DATA. Only WMMarkets DEMO allowed.
 echo Same original guarded tester EA. Live trading NOT enabled.
 echo This is retrospective stability research, NOT future profit proof.
 echo.
-py -3 "%~dp0tools\auto_nyao_historical_robustness.py" %*
+py -3 "%~dp0tools\auto_nyao_historical_robustness.py" --reuse-verified-q1 %*
 set "CODE=%ERRORLEVEL%"
 if not "%CODE%"=="0" (
   echo.
