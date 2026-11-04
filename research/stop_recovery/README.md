@@ -3,8 +3,15 @@
 
 ## Preferred: ONE-COMMAND Windows automatic research run
 
-Open your already-logged-in, FLAT (no open orders) WMMarkets DEMO terminal.
-Then, once in Windows PowerShell:
+**MT5 may initially be closed.** The runner now auto-starts the selected
+terminal under an isolated startup configuration with chart Expert Advisors
+**disabled** (`[Experts] Enabled=0`, `AllowLiveTrading=0`, `AllowDllImport=0`).
+It then verifies the connected broker account is WMMarkets DEMO and has **zero
+open positions/pending orders** before doing any test work. If MT5 cannot
+restore the saved DEMO login, sign into DEMO manually once and rerun; a REAL
+login fails closed and the probe is shut down. An unrelated already-running
+MT5 process also blocks auto-start to avoid affecting another terminal.
+Then, in Windows PowerShell:
 
     cd "$env:USERPROFILE\Trader"
     git pull --ff-only origin main
@@ -29,11 +36,11 @@ Upload only that ZIP. There is no manual need to open MT5 Strategy Tester or
 copy CSVs. The launcher preserves an existing CSV by archiving it locally.
 Previous demo MT5 is reopened where possible.
 
-Preconditions that cannot be bypassed safely: one running WMMarkets DEMO
-terminal with a saved authenticated demo account, zero open positions or
-pending orders, installed Python 3 + MetaTrader5 package. A non-demo account,
-missing demo login, open order, ambiguous terminal or missing data will
-FAIL CLOSED. No real orders are sent by the runner. The tester-only
+Preconditions that cannot be bypassed safely: one discoverable MT5
+installation, a saved/verified WMMarkets DEMO login (the terminal may be
+closed), zero open positions/pending orders, and installed Python 3 plus the
+MetaTrader5 package. A REAL/unknown account, missing demo login, open order,
+ambiguous terminal or missing data will FAIL CLOSED. No real orders are sent by the runner. The tester-only
 research Expert itself refuses to run outside Strategy Tester.
 
 Failure to compile, launch, complete or reconcile produces a FAILURE ZIP
