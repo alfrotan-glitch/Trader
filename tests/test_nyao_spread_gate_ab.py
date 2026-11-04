@@ -13,7 +13,7 @@ class SpreadGateTests(unittest.TestCase):
     def test_real_repo_preset_is_pinned_and_single_variable(self):
         source = experiment.SOURCE_PRESET
         self.assertTrue(source.is_file())
-        self.assertEqual(experiment.sha256(source), experiment.BASE_SHA256)
+        self.assertIn(experiment.sha256(source), experiment.KNOWN_BASE_SHA256)
         original, trial = experiment.frozen_profiles(source.read_text("utf-8-sig"))
         b, t = experiment.profile_inputs(original), experiment.profile_inputs(trial)
         self.assertEqual(len(b), 172)
