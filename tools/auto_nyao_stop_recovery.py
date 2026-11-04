@@ -99,8 +99,11 @@ def verify_running_demo(terminal: Path, data: Path) -> tuple[int, str]:
     """Attach to an ALREADY RUNNING terminal; abort rather than start unknown account."""
     if not terminal_running(terminal):
         raise GuardFailure(
-            "WMMarkets DEMO terminal must already be open and logged in once. "
-            "No terminal was started because its account type could not be verified."
+            "MT5 terminal is not running: open the installed WMMarkets MT5 "
+            "application, log in to your WMMarkets-Demo account, wait until connected, "
+            "verify NO positions/pending orders, and rerun "
+            "RUN_NYAO_STOP_RECOVERY.bat. The runner intentionally does not "
+            "auto-launch an unverified terminal, which could restore a REAL login."
         )
     try:
         import MetaTrader5 as mt5
@@ -331,6 +334,7 @@ def run(args: argparse.Namespace) -> int:
     closed_for_test = False
     proc: subprocess.Popen | None = None
     session_start = started
+    zip_packaging_failed = False
     try:
         vendor = ROOT / "nyao_scalper.mq5"
         if sha256(vendor) not in REQUIRED_ORIGINAL_SHA:
@@ -486,8 +490,10 @@ def run(args: argparse.Namespace) -> int:
             note(str(zip_path))
             note("VERDICT: " + state["verdict"])
         except Exception as exc:
+            zip_packaging_failed = True
             note(f"ZIP PACKAGING FAILED: {exc}; raw evidence at {run_dir}")
-            return 3
+    if zip_packaging_failed:
+        return 3
     return 0 if state["verdict"].startswith("COMPLETE_RECONCILED") else 2
 
 
