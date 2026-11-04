@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 import sys
+import hashlib
+import json
+import tempfile
+import zipfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -90,6 +94,56 @@ class HistoricalRegimeTests(unittest.TestCase):
         with patch.object(hist, "validate_pair", return_value=comparison):
             with self.assertRaisesRegex(hist.GuardFailure, "exact historical fold"):
                 hist.native_fold_metrics(Path("a.htm"), Path("b.htm"), fold)
+
+    def test_verified_q1_resume_reuses_two_reports_only_after_hash_checks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive = root / "NYAO_HISTORICAL_STRESS_EVIDENCE_20261104_130351_585.zip"
+            base_name = "Trader_HIST_BASE_20261104_130351_585.set"
+            trial_name = "Trader_HIST_TRIAL_20261104_130351_585.set"
+            source_paths = {
+                base_name: b"MaxSpreadPoints=500\n",
+                trial_name: b"MaxSpreadPoints=400\n",
+                "native/Q1_BASE/NYAO_STOP_HIST_Q1_BASE_20261104130351585.htm": b"base",
+                "native/Q1_TRIAL/NYAO_STOP_HIST_Q1_TRIAL_20261104130351585.htm": b"trial",
+            }
+            hashes = {path: hashlib.sha256(data).hexdigest()
+                      for path, data in source_paths.items()}
+            manifest = {
+                "verdict": "FAILED_CLOSED__LIVE_LOCKED",
+                "errors": ["GuardFailure: Native report has non-frozen symbol or chart period"],
+                "demo_account_verified": True,
+                "source_sha256": "vendor_1",
+                "guarded_control_ex5_sha256": "ex5_1",
+                "preset_source_sha256": "preset_1",
+                "folds_preregistered": [list(x) for x in hist.FOLDS],
+                "files_sha256": hashes,
+            }
+            with zipfile.ZipFile(archive, "w") as z:
+                z.writestr("manifest.json", json.dumps(manifest))
+                for path, data in source_paths.items():
+                    z.writestr(path, data)
+            outcome = {"fold": {"id": "Q1"}}
+            with patch.object(hist, "ROOT", root), \
+                 patch.object(hist, "native_fold_metrics", return_value=outcome) as validate:
+                run = root / "fresh"
+                result = hist.reuse_verified_q1(
+                    run, "vendor_1", "ex5_1", "preset_1",
+                    "MaxSpreadPoints=500\n", "MaxSpreadPoints=400\n"
+                )
+                self.assertEqual(result, (outcome, archive.name))
+                validate.assert_called_once()
+                self.assertTrue((run / "native" / "Q1_BASE" /
+                                 "NYAO_STOP_HIST_Q1_BASE_20261104130351585.htm").is_file())
+                # Different compiled EX5 or differing .set must never be reused.
+                self.assertIsNone(hist.reuse_verified_q1(
+                    root / "second", "vendor_1", "different_ex5", "preset_1",
+                    "MaxSpreadPoints=500\n", "MaxSpreadPoints=400\n"
+                ))
+                self.assertIsNone(hist.reuse_verified_q1(
+                    root / "third", "vendor_1", "ex5_1", "preset_1",
+                    "MaxSpreadPoints=999\n", "MaxSpreadPoints=400\n"
+                ))
 
     def test_stop_execution_influences_stress_report_not_only_pnl(self):
         fold = hist.FOLDS[0]
