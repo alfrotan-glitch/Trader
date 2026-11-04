@@ -21,7 +21,8 @@ from auto_nyao_stop_recovery import (
 
 OUT = ROOT / "local_runs" / "spread_gate"
 SOURCE_PRESET = ROOT / "research" / "fresh_entry" / PRESET
-BASE_SHA256 = "01ff7552131c2601e08718d5ec6a3223578a69c33f67d59cfd76d10effe79089"
+BASE_SHA256 = "01ff7552131c2601e08718d5ec6a3223578a69c33f67d59cfd76d10effe79089"  # Windows checkout CRLF
+KNOWN_BASE_SHA256 = {BASE_SHA256, "f66cddac0fe1328aa04311dde7ab0540e19b087661b5d5cbda321a440b060299"}  # Git LF
 INPUT = "MaxSpreadPoints"
 FORWARD_START = dt.date(2026, 11, 5)  # First FULL UTC day after freeze, never tune on it
 MIN_FORWARD_DAYS = 30
@@ -202,7 +203,7 @@ def run(args: argparse.Namespace) -> int:
         vendor = ROOT / "nyao_scalper.mq5"
         if sha256(vendor) not in REQUIRED_ORIGINAL_SHA:
             raise GuardFailure("Original EA SHA changed: abort")
-        if sha256(SOURCE_PRESET) != BASE_SHA256:
+        if sha256(SOURCE_PRESET) not in KNOWN_BASE_SHA256:
             raise GuardFailure("Frozen .set SHA changed: abort")
         base_text, trial_text = frozen_profiles(SOURCE_PRESET.read_text("utf-8-sig"))
         terminal, data = find_mt5(args.data_folder)
