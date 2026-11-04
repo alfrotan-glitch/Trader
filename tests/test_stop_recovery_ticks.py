@@ -104,6 +104,28 @@ class PostStopTickAnalyzerTests(unittest.TestCase):
             self.assertEqual(report["verdict"], "INCOMPLETE_EVIDENCE")
             self.assertEqual(report["entry_reconciliation"]["missing_stop_watches"], ["43"])
 
+    def test_one_last_end_of_test_entry_is_censored_not_faked_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            stop, entry = base / "stop.csv", base / "entry.csv"
+            save(stop, COLUMNS, [row(ticket="42")])
+            columns = ["ticket", "exit_reason_code", "net_profit_usd", "status"]
+            rows = [
+                {"ticket": "42", "exit_reason_code": "4",
+                 "net_profit_usd": "-20.00", "status": "CLOSED"},
+                {"ticket": "43", "exit_reason_code": "",
+                 "net_profit_usd": "", "status": "OPEN_AT_DEINIT_UNRESOLVED"},
+            ]
+            save(entry, columns, rows)
+            report = analyze(stop, entry)
+            self.assertEqual(report["verdict"], "RECONCILED_WITH_CENSORED_OR_GAPS")
+            self.assertEqual(report["entry_reconciliation"]["eligible_negative_broker_sl"], 1)
+            self.assertEqual(report["entry_reconciliation"]["end_of_test_unresolved_positions"], ["43"])
+            self.assertFalse(report["entry_reconciliation"]["entry_ledger_complete"])
+            save(entry, columns, rows[::-1])
+            with self.assertRaisesRegex(ValueError, "Unexplained or multiple"):
+                analyze(stop, entry)
+
     def test_no_execution_code_added_to_original_7_patch_diagnostic(self):
         base = (ROOT / "nyao_scalper.mq5").read_text(encoding="utf-8")
         variant = (ROOT / "research/diagnostics/nyao_scalper_diagnostic.mq5").read_text(encoding="utf-8")
