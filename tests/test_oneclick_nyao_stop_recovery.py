@@ -3,6 +3,7 @@
 Never launches MetaTrader, terminates a process, or sends broker orders.
 """
 from __future__ import annotations
+import ast
 import json
 import sys
 import tempfile
@@ -91,6 +92,21 @@ class OneClickEvidenceTests(unittest.TestCase):
                    return_value={**good, "quality": "95% based on M1"}):
             with self.assertRaisesRegex(GuardFailure, "100% real ticks"):
                 check_report(Path("not-used.html"))
+
+    def test_no_return_from_finally_and_actionable_demo_preflight(self):
+        path = ROOT / "tools" / "auto_nyao_stop_recovery.py"
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        for statement in ast.walk(tree):
+            if isinstance(statement, ast.Try):
+                for line in statement.finalbody:
+                    self.assertFalse(
+                        any(isinstance(n, ast.Return) for n in ast.walk(line)),
+                        "A return in finally overrides the preflight failure exit code",
+                    )
+        self.assertIn("wait until connected", source)
+        self.assertIn("RUN_NYAO_STOP_RECOVERY.bat", source)
+        self.assertIn("auto-launch an unverified terminal", source)
 
     def test_only_explicit_oneclick_launcher_and_demo_gate(self):
         source = (ROOT / "tools" / "auto_nyao_stop_recovery.py").read_text(encoding="utf-8")
