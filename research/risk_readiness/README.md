@@ -45,6 +45,20 @@ Across the whole history, **680 of 718** baseline entry keys (time, side, fill p
 
 **Decision:** `0.5%_LARGE_ACCOUNT_HISTORICAL_NO_IMPROVEMENT__SMALL_ACCOUNT_UNTESTED__LIVE_LOCKED`. Do not promote the risk research preset as a better-performing trading setup. Keep the original Checkpoint+ER0.15 trading *research* baseline unchanged. A trial $200 deposit + full Strategy Tester Journal is needed to test if minimum lot is actually blocked at risk cap. Before any live approval, fix the pre-existing fail-open path in `ApplyRiskSizing` when symbol tick metadata is unavailable; the next edit should be this **single safety issue**, not extra indicators, TP tuning, session gates or complexity. Add regression tests including missing metadata, minimum lot, weekend reopening, and frozen source behavior. Revalidate the baseline after any engine change and complete prospective DEMO testing.
 
+## Separate user-requested 5% sizing trial — DEMO ONLY, UNTESTED
+
+Research-only preset: `Trader_RISK5_CAP5_ER015_DEMO_ONLY.set`.
+
+Compared with the existing 0.5%-target research preset, **two coupled inputs** change: `RiskPerTradePct=5.0` and `MaxRiskPerTradePct=5.0`; the latter avoids retaining an inconsistent 1% minimum-lot tolerance. The other **170 inputs** are unchanged. In particular, `SLInputType=2`, `SLValue=20000`, `MinEfficiencyToTrade=0.15`, `EnableCheckpointExit=true`, and `MaxLotSize=0.02` are all **unchanged**. The main EA, previous profiles and tested baseline are untouched.
+
+**This does NOT grant more room before a stop.** Initial stop distance is identical. The chosen 5% target changes the size calculation, subject to the broker minimum `0.01` and EA maximum `0.02` lots. With the observed approx. USD 20 initial stop for 0.01 lots, a USD 200 account has a USD 10 loss budget at 5%; because 0.01 lot already risks roughly USD 20 at the stop, the expected behavior with valid broker metadata is **reject the entry**, not widen the stop. On a USD 3000 account, 5% is USD 150, but the 0.02-lot ceiling limits intended actual volume; 5% is not a promise that every trade risks exactly 5%.
+
+**Do not use this profile on a REAL account.** Five-percent risk per position is aggressive: 10 successive 5% losses compound equity to `(0.95)^10 ≈ 59.9%`, or **40.1% drawdown**, before any slippage. Stop execution can exceed modeled loss (historic USD -70.92 on 0.01 lots); the original code still contains the known fail-open behavior if symbol tick-value metadata is missing. Furthermore, there is no native MT5 5% report to claim higher expectancy or profit.
+
+To make an entry survive normal market noise requires a separately justified **wider SL based on market volatility or structure**, paired with a **smaller lot** so monetary risk stays constant. On broker minimum 0.01 lot and a USD 100–200 account, these requirements may be impossible simultaneously; using 5% does not cure that constraint.
+
+For manual DEMO research, load the new `.set` into the **original** Nyao EA in Strategy Tester, preserving the same XAUUSD@ M5 real-tick environment. Compare with the frozen baseline. If evaluating USD 200, record both whether entries are blocked and any `[RISK SIZING]` Journal messages. The 5% result is **not** a substitute for the unresolved strict risk-metadata safety fix and unseen forward DEMO test.
+
 ## The reason for this one-variable experiment
 
 The successful 718-trade backtest used fixed `BaseLotSize=0.01` on a **$3,000** hypothetical account with `RiskPerTradePct=0.0`. It therefore did **not** enforce a per-trade percent-risk budget. The typical initial broker SL is **20 gold-price units** and on WMMarkets this is approximately **$20 risk for 0.01 lots**, *before gaps or slippage*. The largest realized loss in the historical report was **$70.92** (2026-04-13).
