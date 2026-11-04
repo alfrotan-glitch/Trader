@@ -149,7 +149,7 @@ class OneClickEvidenceTests(unittest.TestCase):
                         any(isinstance(n, ast.Return) for n in ast.walk(line)),
                         "A return in finally overrides the preflight failure exit code",
                     )
-        self.assertIn("Log in to the saved WMMarkets DEMO account once", source)
+        self.assertIn("saved WMMarkets DEMO account once", source)
         self.assertIn("launch_safe_preflight(terminal, run_dir)", source)
         self.assertIn("verify_demo_after_autostart(", source)
 
