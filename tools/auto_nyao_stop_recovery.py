@@ -507,6 +507,63 @@ def check_report(path: Path) -> dict:
     return result
 
 
+
+def validated_native_report(path: Path) -> tuple[dict, dict[str, str]]:
+    """Validate model and frozen inputs on every control/diagnostic pass."""
+    report = parse_report(path)
+    if report is None:
+        raise GuardFailure("Native MT5 report summary missing")
+    if "100%" not in str(report.get("quality", "")).lower() or \
+       "real ticks" not in str(report.get("quality", "")).lower():
+        raise GuardFailure("Not a 100% real-tick report: " + str(report.get("quality")))
+    params = dict(re.findall(
+        r"(?is)<b>\s*([A-Za-z_]\w*)=([^<\r\n]+)</b>",
+        read_text_any(path)
+    ))
+    for setting, expected in (
+        ("RiskPerTradePct", "0.0"),
+        ("MaxRiskPerTradePct", "1.0"),
+        ("MinEfficiencyToTrade", "0.15"),
+        ("BaseLotSize", "0.01"),
+        ("EnableCheckpointExit", "true"),
+        ("EnableRiskReward", "false"),
+    ):
+        if params.get(setting) != expected:
+            raise GuardFailure(
+                f"Native report has nonfrozen {setting}={params.get(setting)!r}, "
+                f"expected {expected}"
+            )
+    if len(params) < 170:
+        raise GuardFailure("Native report omitted frozen input fields")
+    return report, params
+
+
+def run_tester_pass(terminal: Path, ini: Path, minutes: int,
+                    progress: str) -> tuple[float, int]:
+    """Single unattended tester pass; terminal shuts itself down via /config."""
+    start = time.time()
+    proc = subprocess.Popen(
+        f'"{terminal}" /config:"{ini}"',
+        creationflags=BELOW_NORMAL_PRIORITY_CLASS
+    )
+    deadline = time.monotonic() + minutes * 60
+    last_print = time.monotonic()
+    try:
+        while proc.poll() is None:
+            if time.monotonic() >= deadline:
+                raise GuardFailure(f"{progress} tester timed out; partial evidence kept")
+            now = time.monotonic()
+            if now - last_print > 120:
+                print(f"{progress} tester running (no live orders)...", flush=True)
+                last_print = now
+            time.sleep(3)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=30)
+    return start, int(proc.returncode)
+
+
 def snapshot_hashes(paths: dict[str, Path]) -> dict[str, str | None]:
     return {name: sha256(p) if p.is_file() else None for name, p in paths.items()}
 
