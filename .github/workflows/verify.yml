@@ -86,7 +86,7 @@ jobs:
       - name: Verify one-click runner makes failure ZIP without installed MT5
         shell: powershell
         run: |
-          python .\tools\auto_nyao_stop_recovery.py
+          & .\RUN_NYAO_STOP_RECOVERY.bat
           if ($LASTEXITCODE -ne 2) { throw 'Expected fail-closed status without local MT5.' }
           $zips = @(Get-ChildItem -File 'NYAO_STOP_RECOVERY_EVIDENCE_*.zip' -ErrorAction SilentlyContinue)
           if ($zips.Count -ne 1) { throw ('Expected one failure evidence ZIP, found ' + $zips.Count) }
@@ -102,6 +102,7 @@ jobs:
             }
           } finally { $archive.Dispose() }
           Write-Host 'PASS: failed safely and packaged evidence without MetaTrader installation.'
+          exit 0
       - name: Refuse unsafe tester auto-start before terminal discovery
         shell: powershell
         run: |
