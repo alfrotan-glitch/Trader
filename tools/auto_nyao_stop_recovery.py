@@ -85,6 +85,8 @@ def make_tester_ini(login: int, server: str, report_name: str) -> str:
         raise GuardFailure("Unsafe report name")
     return "\n".join([
         "[Common]", f"Login={login}", f"Server={server}",
+        "[Experts]", "Enabled=0", "AllowLiveTrading=0", "AllowDllImport=0",
+        "Account=1", "Profile=1",
         "[Tester]", f"Expert={EXPERT}", f"ExpertParameters={PRESET}",
         f"Symbol={SYMBOL}", f"Period={PERIOD}", "Model=4",
         "ExecutionMode=0", "Optimization=0", "ForwardMode=0",
@@ -95,15 +97,88 @@ def make_tester_ini(login: int, server: str, report_name: str) -> str:
     ])
 
 
+
+def make_safe_preflight_ini() -> str:
+    """Start the local GUI with chart EAs OFF, before inspecting any account.
+
+    This does NOT authorize a real trading account: a live/unknown login still
+    fails before tester installation and the process is closed again.
+    """
+    return "\n".join([
+        "[Experts]", "Enabled=0", "AllowLiveTrading=0", "AllowDllImport=0",
+        "Account=1", "Profile=1", "",
+    ])
+
+
+def detect_any_terminal_process() -> bool:
+    """Fail closed if a different/hidden terminal is running (avoid double launches)."""
+    command = (
+        "if (Get-Process -Name terminal64 -ErrorAction SilentlyContinue) "
+        "{ exit 0 } else { exit 1 }"
+    )
+    result = subprocess.run(
+        ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive",
+         "-Command", command],
+        capture_output=True, text=True, timeout=15,
+    )
+    if result.returncode not in (0, 1):
+        raise GuardFailure("Cannot inspect active terminal64 processes")
+    return result.returncode == 0
+
+
+def launch_safe_preflight(terminal: Path, run_dir: Path) -> bool:
+    """Autostart disabled-trading MT5 only if no MT5 process exists.
+
+    Never reuse a hidden terminal under an unknown account, and never enable
+    automated chart trading while probing the saved login.
+    """
+    if terminal_running(terminal):
+        return False
+    if detect_any_terminal_process():
+        raise GuardFailure(
+            "An MT5 process is already running but does not match the selected "
+            "installation. Close the unrelated MT5 or use --data-folder for "
+            "the actual WMMarkets-Demo terminal. No second terminal launched."
+        )
+    try:
+        import MetaTrader5  # noqa: F401
+    except ImportError as exc:
+        raise GuardFailure(
+            "The MetaTrader5 Python package is missing. Install it with "
+            "py -3 -m pip install MetaTrader5, then rerun."
+        ) from exc
+    ini = run_dir / "private_demo_preflight.ini"
+    write_utf16(ini, make_safe_preflight_ini())
+    try:
+        proc = subprocess.Popen(
+            [str(terminal), f"/config:{ini}"],
+            creationflags=BELOW_NORMAL_PRIORITY_CLASS,
+        )
+    except OSError as exc:
+        raise GuardFailure(f"MT5 could not start with safe trading-disabled config: {exc}") from exc
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        if terminal_running(terminal):
+            return True
+        if proc.poll() is not None:
+            raise GuardFailure(
+                f"MT5 safe preflight exited before connection (code {proc.returncode}). "
+                "See ZIP and verify the installed terminal."
+            )
+        time.sleep(2)
+    raise GuardFailure(
+        "MT5 did not become visible within the safe preflight window; "
+        "no test started. If it remains open, select the correct demo login."
+    )
+
+
 def verify_running_demo(terminal: Path, data: Path) -> tuple[int, str]:
-    """Attach to an ALREADY RUNNING terminal; abort rather than start unknown account."""
+    """Read the currently connected account; never place a broker order."""
     if not terminal_running(terminal):
         raise GuardFailure(
-            "MT5 terminal is not running: open the installed WMMarkets MT5 "
-            "application, log in to your WMMarkets-Demo account, wait until connected, "
-            "verify NO positions/pending orders, and rerun "
-            "RUN_NYAO_STOP_RECOVERY.bat. The runner intentionally does not "
-            "auto-launch an unverified terminal, which could restore a REAL login."
+            "MT5 failed to open in safe (chart trading disabled) mode. "
+            "Open the installed WMMarkets MT5 once, login to the DEMO account, "
+            "then rerun RUN_NYAO_STOP_RECOVERY.bat."
         )
     try:
         import MetaTrader5 as mt5
@@ -331,6 +406,7 @@ def run(args: argparse.Namespace) -> int:
     terminal: Path | None = None
     data: Path | None = None
     was_running = False
+    started_safe_preflight = False
     closed_for_test = False
     proc: subprocess.Popen | None = None
     session_start = started
@@ -340,8 +416,14 @@ def run(args: argparse.Namespace) -> int:
         if sha256(vendor) not in REQUIRED_ORIGINAL_SHA:
             raise GuardFailure("Original vendor EA checksum drifted; no run permitted")
         terminal, data = find_mt5(args.data_folder)
-        note("Preflight: validating already-connected WMMarkets DEMO and no open orders...")
+        note("Preflight: check local MT5, safe-autostart with live chart trading disabled if closed...")
+        started_safe_preflight = launch_safe_preflight(terminal, run_dir)
+        if started_safe_preflight:
+            note("Opened MT5 automatically using [Experts] Enabled=0 / AllowLiveTrading=0.")
+        note("Verifying WMMarkets DEMO login and no open orders...")
         login, server = verify_running_demo(terminal, data)
+        if started_safe_preflight:
+            state["safe_preflight_autostart"] = True
         was_running = True
         state["demo_verified_before_launch"] = True
         state["demo_server"] = server
@@ -453,13 +535,27 @@ def run(args: argparse.Namespace) -> int:
         capture_native_compiler_evidence(run_dir, started)
         if data is not None:
             capture_filtered_logs(data, run_dir, session_start)
-        if closed_for_test and was_running and terminal is not None:
+        if started_safe_preflight and not closed_for_test and terminal is not None:
+            # This probe might have restored a REAL login. It was started with
+            # all chart EAs disabled, and must NOT be left running on failure.
             try:
-                reopen_terminal(terminal)
-                note("DEMO terminal reopened after research test.")
+                if not close_terminal(terminal, wait_s=30):
+                    note("WARNING: safe preflight MT5 did not close automatically.")
+                else:
+                    note("Safe-preflight MT5 closed after failed DEMO verification.")
             except Exception as exc:
-                state["errors"].append(f"Could not reopen DEMO terminal: {exc}")
-                note("WARNING: DEMO terminal could not reopen.")
+                state["errors"].append(f"Safe preflight shutdown failed: {type(exc).__name__}")
+                note("WARNING: close the safely launched MT5 manually.")
+        if closed_for_test and was_running and terminal is not None:
+            if started_safe_preflight:
+                note("Auto-started MT5 not reopened in ordinary trading mode.")
+            else:
+                try:
+                    reopen_terminal(terminal)
+                    note("Existing DEMO terminal reopened after research test.")
+                except Exception as exc:
+                    state["errors"].append(f"Could not reopen DEMO terminal: {exc}")
+                    note("WARNING: DEMO terminal could not reopen.")
         state["elapsed_seconds"] = round(time.time() - started, 1)
         state["files_sha256"] = {
             p.relative_to(run_dir).as_posix(): sha256(p)
