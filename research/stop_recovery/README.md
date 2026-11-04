@@ -1,5 +1,49 @@
 # Nyao v54 — stop timing and post-stop recovery audit (2026-11-04)
 
+
+## Preferred: ONE-COMMAND Windows automatic research run
+
+Open your already-logged-in, FLAT (no open orders) WMMarkets DEMO terminal.
+Then, once in Windows PowerShell:
+
+    cd "$env:USERPROFILE\Trader"
+    git pull --ff-only origin main
+    .\RUN_NYAO_STOP_RECOVERY.bat
+
+The command automatically: verifies the broker connection is DEMO via the
+MetaTrader5 Python API; compiles the tester-only instrumented EA; archives
+older research CSV evidence; gracefully closes the flat DEMO terminal;
+launches the official MT5 command-line Strategy Tester with the original
+research preset, XAUUSD@ M5, 2026-01-01 to 2026-11-02, USD 3000, 1:100,
+real ticks, optimization OFF; waits for the native HTML report; checks the
+frozen 718 trades / +USD 1212.42 parity and 100% real-tick history;
+reconciles both CSV files and produces analysis JSON; captures filtered
+journal, hashes, report images and compiler evidence; then packages
+everything as a single ZIP.
+
+Expected output in the Trader folder:
+
+    NYAO_STOP_RECOVERY_EVIDENCE_YYYYMMDD_HHMMSS_mmm.zip
+
+Upload only that ZIP. There is no manual need to open MT5 Strategy Tester or
+copy CSVs. The launcher preserves an existing CSV by archiving it locally.
+Previous demo MT5 is reopened where possible.
+
+Preconditions that cannot be bypassed safely: one running WMMarkets DEMO
+terminal with a saved authenticated demo account, zero open positions or
+pending orders, installed Python 3 + MetaTrader5 package. A non-demo account,
+missing demo login, open order, ambiguous terminal or missing data will
+FAIL CLOSED. No real orders are sent by the runner. The tester-only
+research Expert itself refuses to run outside Strategy Tester.
+
+Failure to compile, launch, complete or reconcile produces a FAILURE ZIP
+with receipt/logs where possible instead of inventing a valid result.
+The package excludes private tester.ini and saved login credentials, though
+the native MT5 HTML report may include a DEMO account identifier.
+The main vendor EA and 172-input frozen preset are unchanged; LIVE LOCKED.
+Github CI validates Python and Windows scripts without opening a live broker.
+
+
 **Research only. No EA source/config changed. LIVE LOCKED.**
 Source: user-supplied WMMarkets-Demo Build 6230 HTML Strategy Tester reports `ReportTester-20282400.html` (0% risk target, 0.01 lot control) and `ReportTester-20282400(3).html` (5% target, 5% tolerance, all 0.02 lot), XAUUSD@ M5 2026-01-01 through 2026-11-02, 100% real ticks, same 68,054,566 underlying test ticks, $3,000 initial deposit, 1:100 leverage.
 
