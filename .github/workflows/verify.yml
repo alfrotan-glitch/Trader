@@ -2,7 +2,7 @@ name: Trader source and installer checks
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'research/spread-gate-ab-20261104']
   pull_request:
 
 permissions:
