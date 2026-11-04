@@ -55,3 +55,89 @@ These are measured subsequent executable-price observations, NOT backtested hypo
 For each stop, the first actual tick crossing back through entry, maximum favorable excursion within a specified window after the stop, maximum adverse excursion before rebound, full bid/ask spread chronology, or whether a wider stop would have been filled / caused margin issues **cannot** be reconstructed exactly from MT5 deal HTML reports. A **separate read-only tick replay / historical broker tick export with server-time mapping** is required to make per-position `first_return_entry_timestamp`, `first_plus5_timestamp`, `first_plus20_timestamp` and `max_adverse_before_return` reliable. The already built `NYAO_ENTRY_DIAGNOSTICS.csv` samples in-position MFE/MAE but does **not** monitor ticks **after** an exit; it is insufficient for this after-stop question.
 
 **Decision:** keep baseline checkpoint/ER0.15 research setup; do not raise per-trade monetary risk, widen SL arbitrarily, disable stops or add new indicators on this historical sample. First validate after-stop paths on exact ticks and then preregister at most one change to stop placement with volume reduced to hold constant expected monetary risk. Existing symbol-metadata fail-open safety defect must be addressed before live approval.
+
+
+## NEW: automatic 24-hour post-stop tick replay (research only)
+
+An implementation now exists in the **existing, tester-only** diagnostic sidecar
+(research/diagnostics/NYAO_Diagnostics.mqh). This does not change the original
+nyao_scalper.mq5 or its 7 diagnostic insertion points. It never sends orders.
+A separate post-stop observer watches **every subsequent Strategy Tester tick**
+after an explicitly loss-making broker stop (DEAL_REASON_SL + negative net),
+up to 24h. It uses liquidation-side Bid for an old BUY and Ask for an old SELL,
+with millisecond server timestamps; the closing tick itself is excluded.
+
+Its separate read-only output is NYAO_STOP_RECOVERY_TICKS.csv in MT5 Common/Files:
+one row per loss-making broker stop; first tick back to entry, first tick +5
+gold-price units in the original trade direction, first tick reaching the
+first virtual Checkpoint (+20 with the frozen profile), additional adverse
+movement beyond the fill, maximum adverse movement before returning to entry,
+best favorable move, observed tick count and coverage status. CENSORED_TEST_END
+and NO_TICKS_IN_WINDOW are never represented as 'price did not rebound'.
+
+IMPORTANT: Source changes passed GitHub Python/static tests, but this new
+MQL5 header has NOT been compiled in the user's local MetaEditor or
+replayed in native MT5. No post-stop tick results exist yet. LIVE LOCKED.
+
+### Windows steps (single manual tester run)
+
+1. In PowerShell, update the repo:
+
+    cd "$env:USERPROFILE\Trader"
+    git pull --ff-only origin main
+
+2. The diagnostic deliberately refuses overwriting either CSV. Archive older
+   copies in MT5 Common/Files before running again:
+
+    $common = Join-Path $env:APPDATA "MetaQuotes\Terminal\Common\Files"
+    foreach ($name in @("NYAO_ENTRY_DIAGNOSTICS.csv", "NYAO_STOP_RECOVERY_TICKS.csv")) {
+        $old = Join-Path $common $name
+        if (Test-Path -LiteralPath $old) {
+            Move-Item -LiteralPath $old -Destination (Join-Path $common ("ARCHIVE_" + (Get-Date -Format yyyyMMdd_HHmmss_fff) + "_" + $name))
+        }
+    }
+
+3. Compile/install the existing research-only EA:
+
+    .\INSTALL_NYAO_DIAGNOSTICS.bat
+
+   Stop if the installer does not say "PASS: compiled research-only EA".
+   It does not start MT5 or place real orders.
+
+4. In WMMarkets DEMO MT5, press Ctrl+R. Select EXPERT:
+   TraderResearch\nyao_scalper_diagnostic
+   Symbol XAUUSD@; M5; 2026-01-01 through 2026-11-02;
+   Every tick based on real ticks; USD 3000; 1:100;
+   optimization OFF, forward OFF.
+   Load existing tester preset Trader_FRESH_ER015_FIXED001.set:
+   RiskPerTradePct=0.0, BaseLotSize=0.01, Checkpoint ON, ER=0.15.
+   Do NOT select the previously tested 5% research profile because
+   this diagnostic variant intentionally rejects it.
+
+5. Run the Strategy Tester manually. Save full tester HTML report AND Journal.
+   The required A/A parity gate is 718 completed positions and
+   +USD 1,212.42 net; if it differs, do NOT infer stop recovery probabilities.
+
+6. Analyze the two new CSV files in PowerShell:
+
+    $common = Join-Path $env:APPDATA "MetaQuotes\Terminal\Common\Files"
+    py -3 .\research\stop_recovery\analyze_tick_recovery.py (Join-Path $common "NYAO_STOP_RECOVERY_TICKS.csv") --entry-csv (Join-Path $common "NYAO_ENTRY_DIAGNOSTICS.csv") --expected-stops 371 --output ".\local_runs\stop_recovery_report.json"
+
+   The expected count 371 comes from historical SL-comment losses; native
+   deal-reason classification is independently verified, not assumed.
+   The analyzer rejects duplicate/missing stop rows, malformed timestamps,
+   invented crossings and incomplete entry-side diagnostic evidence.
+   It reports confirmed returns for 1h/4h/24h and labels censored
+   windows separately.
+
+7. Send NYAO_STOP_RECOVERY_TICKS.csv, NYAO_ENTRY_DIAGNOSTICS.csv,
+   full MT5 tester report and the JSON analyzer report (plus Journal if
+   available) for scrutiny. Only then test ONE potential SL-placement
+   improvement with a smaller lot to maintain constant monetary risk.
+
+### Interpretation limits
+
+Tick observation of the original trading strategy is NOT a counterfactual
+simulation of keeping the stopped trades open. A wider stop can change
+trailing decisions, margins and future entry opportunities. No stop change
+is justified until native tick data and the 718-trade parity check pass.
