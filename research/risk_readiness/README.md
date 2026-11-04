@@ -45,7 +45,35 @@ Across the whole history, **680 of 718** baseline entry keys (time, side, fill p
 
 **Decision:** `0.5%_LARGE_ACCOUNT_HISTORICAL_NO_IMPROVEMENT__SMALL_ACCOUNT_UNTESTED__LIVE_LOCKED`. Do not promote the risk research preset as a better-performing trading setup. Keep the original Checkpoint+ER0.15 trading *research* baseline unchanged. A trial $200 deposit + full Strategy Tester Journal is needed to test if minimum lot is actually blocked at risk cap. Before any live approval, fix the pre-existing fail-open path in `ApplyRiskSizing` when symbol tick metadata is unavailable; the next edit should be this **single safety issue**, not extra indicators, TP tuning, session gates or complexity. Add regression tests including missing metadata, minimum lot, weekend reopening, and frozen source behavior. Revalidate the baseline after any engine change and complete prospective DEMO testing.
 
-## Separate user-requested 5% sizing trial — DEMO ONLY, UNTESTED
+## Completed 5%-target MT5 native real-tick test — 2026-11-04
+
+**Supplied evidence:** `ReportTester-20282400(3).html`, original `nyao_scalper`, WMMarkets-Demo build 6230, XAUUSD@ M5, Jan 1–Nov 2 2026, 68,054,566 real ticks/59,124 M5 bars, initial USD 3000, 1:100. Frozen control: `ReportTester-20282400.html` with RiskPerTradePct=0, checkpoint on, ER=0.15. Inspected all 172 input values: the only two differences are the coupled `RiskPerTradePct: 0.0 -> 5.0` and `MaxRiskPerTradePct: 1.0 -> 5.0`. All signal, checkpoint and SL settings remain the same.
+
+| Metric | Frozen 0% target / fixed lot control | 5% target / 5% tolerance trial |
+| --- | ---: | ---: |
+| Completed positions | 718 | 674 |
+| **Actual lots across ALL entries** | **0.01** | **0.02** |
+| **Actual initial broker stop distance across ALL entries** | **20.00 gold-price units** | **20.00 gold-price units** |
+| Net profit USD | +1212.42 | +1493.73 |
+| Gross profit USD | +6371.21 | +11732.02 |
+| Gross loss USD | -5158.79 | -10238.29 |
+| Profit factor | **1.24** | 1.15 |
+| Win rate incl break-even trades (MT5) | 42.48% | 42.88% |
+| Max equity DD | **USD 544.70 / 14.71%** | USD 1305.66 / 31.00% |
+| Worst loss | -70.92 | -141.84 |
+| Recovery factor | **2.23** | 1.14 |
+| Top-ten winning exits | +916.04 | +1767.83 |
+| Net excluding top ten winning exits | **+296.38** | **-274.10** |
+
+The nominal 5% parameter **did not increase SL breathing room at all**. It selected the EA's **0.02 lot maximum on each of 674 entries**. At the fixed 20-gold-unit SL, the planned initial loss is approximately **USD 40 per entry** (roughly 1.33% of USD 3000 start equity), not USD 150/5%. Actual market gaps can exceed this: the identical 2026-04-13 bad exit realized -141.84 at 0.02 vs -70.92 at 0.01. The 5% label is therefore **not** proof of a strict 5% realized loss cap or even actual 5% use.
+
+**Ledger/path comparison:** 594 exact (entry timestamp, direction, fill price) positions are shared between the control and 5% trial; among them, 590 have realized net profit almost exactly 2x due to doubled volume, and four have different exit trajectories. The trial contains 674 vs 718 completed positions due to path-dependent effects. Only 5%-trial top ten winners already exceed total net: **USD 1767.83 of USD 1493.73 (118.35%)**; excluding them produces **-USD 274.10** compared with **+USD 296.38** for the control. This is a concentration/tail-risk warning, **not** proof of a forward result.
+
+**Selected months:** February USD -646.12 trial vs -247.01 control; April -351.28 vs -149.10; October -92.61 vs +107.93. All monthly P&L values based on deal closing times.
+
+**Decision:** `RISK5_HISTORICAL_RISK_ADJUSTED_REJECT__NO_EXTRA_STOP_ROOM__LIVE_LOCKED`. Do NOT promote 5% preset or increase MaxLotSize/SL blindly. Preserve control Checkpoint+ER0.15 and original source. For additional breathing room, quantify stop-out reversals and test an ATR/structure-defined *wider SL combined with reduced lot* at a constant monetary risk, but broker minimum 0.01 lot makes this infeasible on a USD 100–200 account under ordinary 20-unit XAUUSD stops. Also fix the existing symbol-metadata `ApplyRiskSizing` fail-open separately before considering live trading; this audit did not implement code changes. Any improvement needs a prospective frozen DEMO holdout.
+
+## Separate user-requested 5% sizing trial — DEMO ONLY, TESTED HISTORICALLY
 
 Research-only preset: `Trader_RISK5_CAP5_ER015_DEMO_ONLY.set`.
 
@@ -53,7 +81,7 @@ Compared with the existing 0.5%-target research preset, **two coupled inputs** c
 
 **This does NOT grant more room before a stop.** Initial stop distance is identical. The chosen 5% target changes the size calculation, subject to the broker minimum `0.01` and EA maximum `0.02` lots. With the observed approx. USD 20 initial stop for 0.01 lots, a USD 200 account has a USD 10 loss budget at 5%; because 0.01 lot already risks roughly USD 20 at the stop, the expected behavior with valid broker metadata is **reject the entry**, not widen the stop. On a USD 3000 account, 5% is USD 150, but the 0.02-lot ceiling limits intended actual volume; 5% is not a promise that every trade risks exactly 5%.
 
-**Do not use this profile on a REAL account.** Five-percent risk per position is aggressive: 10 successive 5% losses compound equity to `(0.95)^10 ≈ 59.9%`, or **40.1% drawdown**, before any slippage. Stop execution can exceed modeled loss (historic USD -70.92 on 0.01 lots); the original code still contains the known fail-open behavior if symbol tick-value metadata is missing. Furthermore, there is no native MT5 5% report to claim higher expectancy or profit.
+**Do not use this profile on a REAL account.** Five-percent risk per position is aggressive: 10 successive 5% losses compound equity to `(0.95)^10 ≈ 59.9%`, or **40.1% drawdown**, before any slippage. Stop execution can exceed modeled loss (historic USD -70.92 on 0.01 lots); the original code still contains the known fail-open behavior if symbol tick-value metadata is missing. The completed MT5 5% report above shows higher absolute net but much worse drawdown, profit factor, recovery factor and concentration; not approved for live.
 
 To make an entry survive normal market noise requires a separately justified **wider SL based on market volatility or structure**, paired with a **smaller lot** so monetary risk stays constant. On broker minimum 0.01 lot and a USD 100–200 account, these requirements may be impossible simultaneously; using 5% does not cure that constraint.
 
