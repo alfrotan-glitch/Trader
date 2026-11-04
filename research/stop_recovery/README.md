@@ -17,16 +17,24 @@ Then, in Windows PowerShell:
     git pull --ff-only origin main
     .\RUN_NYAO_STOP_RECOVERY.bat
 
-The command automatically: verifies the broker connection is DEMO via the
-MetaTrader5 Python API; compiles the tester-only instrumented EA; archives
-older research CSV evidence; gracefully closes the flat DEMO terminal;
-launches the official MT5 command-line Strategy Tester with the original
-research preset, XAUUSD@ M5, 2026-01-01 to 2026-11-02, USD 3000, 1:100,
-real ticks, optimization OFF; waits for the native HTML report; checks the
-frozen 718 trades / +USD 1212.42 parity and 100% real-tick history;
-reconciles both CSV files and produces analysis JSON; captures filtered
-journal, hashes, report images and compiler evidence; then packages
-everything as a single ZIP.
+The command automatically verifies the connected WMMarkets DEMO account,
+compiles TWO protected research Experts (a **tester-only copy of the ORIGINAL
+Nyao source**, plus the diagnostic observer), and runs BOTH in the same
+XAUUSD@ M5, 2026-01-01–2026-11-02, USD 3000, 1:100, 100% real-tick
+environment with the **exact same frozen 172-input preset**.
+The two complete native deal ledgers are compared by timestamp/order/side/price.
+This explicitly answers whether the prior 709-vs-718 discrepancy arises
+when the original code itself is run in the current environment, or only
+when diagnostic instrumentation is attached. If the original 718 / +1212.42
+historical result is not reproduced, it is flagged as **historical drift**,
+never silently accepted as a valid old baseline.
+The program saves TWO native MT5 reports, the 24-hour stop-tick CSV,
+entry diagnostics, analyzer results, source hashes, and compiler/log
+evidence, then packages everything into ONE ZIP. The final MT5-driven
+end-of-test position, which the EA cannot observe after its OnDeinit
+callback, remains explicitly censored rather than invented.
+See **`research/stop_recovery/ZIP_AUDIT_20261104.md`** for the precise
+analysis of the prior user ZIP and why dual A/A is necessary.
 
 Expected output in the Trader folder:
 
