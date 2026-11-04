@@ -92,7 +92,8 @@ def analyze(
         first = parse_ms(r["first_observed_tick_ms"])
         last = parse_ms(r["last_observed_tick_ms"])
         ticks = int(r["observed_ticks"])
-        if ticks < 0 or (ticks == 0) != (first is None or last is None):
+        if ticks < 0 or (ticks == 0 and (first is not None or last is not None)) or \
+           (ticks > 0 and (first is None or last is None)):
             raise ValueError(f"Tick coverage fields contradict for {ticket}")
         if ticks > 0 and not (exit_ms < first <= last <= end_ms):
             raise ValueError(f"Tick times out of 24h post-exit window for {ticket}")
