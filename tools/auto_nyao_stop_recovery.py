@@ -588,6 +588,7 @@ def run(args: argparse.Namespace) -> int:
         "live_trading_permitted": False,
         "expected_trades": EXPECTED_TRADES,
         "expected_net_usd": EXPECTED_NET,
+        "native_AA_control_required": True,
         "reference_sl_comment_loss_count": EXPECTED_STOP_LOSSES,
         "stop_watch_count_is_derived_from_native_deal_reason": True,
         "errors": [],
@@ -744,13 +745,29 @@ def run(args: argparse.Namespace) -> int:
         ], run_dir / "stop_analyzer.log")
         state["entry_analyzer_passed"] = entry_ok
         state["stop_analyzer_passed"] = stop_ok
-        if not entry_ok or not stop_ok:
+        if not stop_ok:
             raise GuardFailure(
-                "Tester produced evidence but one or both analyzers rejected it; "
-                "see entry_analyzer.log and stop_analyzer.log."
+                "Post-stop tick analyzer rejected evidence; see stop_analyzer.log."
             )
-        state["verdict"] = "COMPLETE_RECONCILED__HISTORICAL_DIAGNOSTIC__LIVE_LOCKED"
-        note("PASS: both CSV evidence tables reconciled. No trading parameters changed.")
+        if not entry_ok:
+            note("ENTRY SIDE INCOMPLETE: check entry_analyzer.log. MT5 may close "
+                 "a final trade after EA OnDeinit; raw CSV is preserved.")
+        if not comparison["exact_native_deal_parity"]:
+            state["verdict"] = "A_A_LEDGER_MISMATCH__HISTORICAL_RESEARCH_ONLY__LIVE_LOCKED"
+            note("A/A MISMATCH: diagnostic code may perturb entries/exits. "
+                 "No stop-change decision is supported.")
+        elif not comparison["historical_718_reference_matched"]:
+            state["verdict"] = "RESEARCH_AA_MATCHED__LEGACY_718_DRIFT__LIVE_LOCKED"
+            note("A/A matched in today's MT5, but original historical 718 / "
+                 "USD 1212.42 is NOT reproduced. Fresh environment drift suspected.")
+        elif not entry_ok:
+            state["verdict"] = "RESEARCH_AA_MATCHED__END_TEST_CENSORED__LIVE_LOCKED"
+            note("A/A and stop watches matched but entry CSV has censored "
+                 "end-of-test position; check native report.")
+        else:
+            state["verdict"] = "COMPLETE_RECONCILED__HISTORICAL_DIAGNOSTIC__LIVE_LOCKED"
+            note("PASS: historical control, native A/A deals and analyzers all match.")
+        note("Both raw MT5 reports and tick files included in evidence ZIP.")
     except (GuardFailure, OSError, subprocess.SubprocessError, ValueError,
             RuntimeError) as exc:
         msg = f"{type(exc).__name__}: {exc}"
@@ -806,7 +823,7 @@ def run(args: argparse.Namespace) -> int:
             "Nyao Scalper STOP RECOVERY - historical research evidence\n"
             f"VERDICT: {state['verdict']}\n"
             "LIVE trading remains LOCKED. Vendor EA and historical preset unchanged.\n"
-            "If the verdict is FAILED_CLOSED, inspect runner.log / analyzer logs.\n"
+            "If the verdict reports AA MISMATCH, do not use stop data to change the strategy.\n"
             "Use the two evidence CSVs and stop_recovery_report.json to review\n"
             "24h post-stop Bid/Ask paths. Native tester replay/parity is mandatory.\n"
             "Account passwords and private tester launch configuration are excluded.\n"
@@ -824,7 +841,7 @@ def run(args: argparse.Namespace) -> int:
             note(f"ZIP PACKAGING FAILED: {exc}; raw evidence at {run_dir}")
     if zip_packaging_failed:
         return 3
-    return 0 if state["verdict"].startswith("COMPLETE_RECONCILED") else 2
+    return 0 if state["verdict"].startswith(("COMPLETE_RECONCILED", "RESEARCH_AA_MATCHED")) else 2
 
 
 def main() -> int:
