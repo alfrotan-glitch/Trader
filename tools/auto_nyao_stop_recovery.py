@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import hashlib
+import html
 import json
 import os
 import re
@@ -32,6 +33,7 @@ START_DATE, END_DATE = "2026.01.01", "2026.11.02"
 SYMBOL, PERIOD = "XAUUSD@", "M5"
 PRESET = "Trader_FRESH_ER015_FIXED001.set"
 EXPERT = r"TraderResearch\nyao_scalper_diagnostic"
+CONTROL_EXPERT = r"TraderResearch\nyao_scalper_control"
 ENTRY_CSV = "NYAO_ENTRY_DIAGNOSTICS.csv"
 STOP_CSV = "NYAO_STOP_RECOVERY_TICKS.csv"
 EXPECTED_TRADES, EXPECTED_NET, EXPECTED_STOP_LOSSES = 718, 1212.42, 371
@@ -75,7 +77,8 @@ def find_mt5(data_folder: str = "") -> tuple[Path, Path]:
     return found[0]
 
 
-def make_tester_ini(login: int, server: str, report_name: str) -> str:
+def make_tester_ini(login: int, server: str, report_name: str,
+                    expert: str = EXPERT) -> str:
     """Official MT5 /config Tester startup. Only a known DEMO account is accepted."""
     if not isinstance(login, int) or login <= 0:
         raise GuardFailure("Cannot lock tester to a validated DEMO login")
@@ -83,11 +86,13 @@ def make_tester_ini(login: int, server: str, report_name: str) -> str:
         raise GuardFailure("Invalid DEMO server name")
     if not re.fullmatch(r"NYAO_STOP_[A-Za-z0-9_]+", report_name):
         raise GuardFailure("Unsafe report name")
+    if expert not in (EXPERT, CONTROL_EXPERT):
+        raise GuardFailure("Only pinned research diagnostics/control Expert allowed")
     return "\n".join([
         "[Common]", f"Login={login}", f"Server={server}",
         "[Experts]", "Enabled=0", "AllowLiveTrading=0", "AllowDllImport=0",
         "Account=1", "Profile=1",
-        "[Tester]", f"Expert={EXPERT}", f"ExpertParameters={PRESET}",
+        "[Tester]", f"Expert={expert}", f"ExpertParameters={PRESET}",
         f"Symbol={SYMBOL}", f"Period={PERIOD}", "Model=4",
         "ExecutionMode=0", "Optimization=0", "ForwardMode=0",
         f"FromDate={START_DATE}", f"ToDate={END_DATE}",
@@ -258,6 +263,99 @@ def verify_demo_after_autostart(terminal: Path, data: Path,
                     ) from exc
                 raise
             time.sleep(5)
+
+
+
+def guarded_control_source(vendor_text: str) -> str:
+    """One inert tester-only initialization guard, all vendor source lines untouched."""
+    marker = "int OnInit()\n{"
+    if vendor_text.count(marker) != 1:
+        raise GuardFailure("Cannot place unique control tester-only OnInit guard")
+    guard = (
+        "\n    // RESEARCH CONTROL: never run on a normal chart or in optimization.\n"
+        "    if(!MQLInfoInteger(MQL_TESTER) || MQLInfoInteger(MQL_OPTIMIZATION))\n"
+        "        return INIT_FAILED;"
+    )
+    return vendor_text.replace(marker, marker + guard, 1)
+
+
+def compile_tester_control(terminal: Path, data: Path, vendor: Path,
+                           run_dir: Path) -> Path:
+    """Compile one guarded control copy; never install a chart-tradable vendor EA."""
+    expert_folder = data / "MQL5" / "Experts" / "TraderResearch"
+    expert_folder.mkdir(parents=True, exist_ok=True)
+    source = expert_folder / "nyao_scalper_control.mq5"
+    binary = source.with_suffix(".ex5")
+    compiler_log = source.with_suffix(".log")
+    text_source = guarded_control_source(vendor.read_text(encoding="utf-8"))
+    source.write_text(text_source, encoding="utf-8")
+    for old in (binary, compiler_log):
+        if old.is_file():
+            old.unlink()
+    compiler = terminal.parent / "metaeditor64.exe"
+    if not compiler.is_file():
+        raise GuardFailure("MetaEditor not found for tester-only control")
+    compile_start = time.time()
+    completed = subprocess.run(
+        f'"{compiler}" /compile:"{source}" /log',
+        capture_output=True, text=True, timeout=240
+    )
+    content = read_text_any(compiler_log) if compiler_log.is_file() else ""
+    (run_dir / "control_compile.log").write_text(
+        content + "\nPROCESS_EXIT_CODE=" + str(completed.returncode) + "\n",
+        encoding="utf-8"
+    )
+    if (not re.search(r"(?im)^\s*Result:\s*0 errors,\s*0 warnings\b", content)
+        or not re.search(r"(?im)^\s*:\s*information:\s*code generated\s*$", content)
+        or not binary.is_file() or binary.stat().st_size <= 0
+        or binary.stat().st_mtime < compile_start - 3):
+        raise GuardFailure("Tester-only control MQL5 compile failed; see control_compile.log")
+    # Confirm guard source used for compiled .ex5, and retain the source
+    # digest without exposing proprietary broker configuration.
+    (run_dir / "control_source_receipt.json").write_text(
+        json.dumps({"control_source_sha256": sha256(source),
+                    "control_ex5_sha256": sha256(binary),
+                    "vendor_source_sha256": sha256(vendor),
+                    "tester_only_guard": True}, indent=2) + "\n",
+        encoding="utf-8"
+    )
+    return binary
+
+
+def native_deal_rows(report: Path) -> list[tuple[str, ...]]:
+    """Extract closed deal ledger, not just aggregate profit (no external packages)."""
+    page = read_text_any(report)
+    rows: list[tuple[str, ...]] = []
+    for block in re.findall(r"(?is)<tr\b[^>]*>(.*?)</tr>", page):
+        cells = [
+            html.unescape(re.sub(r"(?is)<[^>]*>", "", cell)).replace("\xa0", " ").strip()
+            for cell in re.findall(r"(?is)<td\b[^>]*>(.*?)</td>", block)
+        ]
+        if len(cells) == 13 and cells[4] in ("in", "out", "in/out"):
+            rows.append(tuple(cells))
+    if len(rows) < 2 or sum(r[4] == "in" for r in rows) * 2 != len(rows):
+        raise GuardFailure("Native deals ledger missing/incomplete; cannot verify A/A")
+    return rows
+
+
+def compare_native_reports(control: Path, diagnostic: Path) -> dict:
+    control_rows, diag_rows = native_deal_rows(control), native_deal_rows(diagnostic)
+    first_index = next(
+        (i for i in range(min(len(control_rows), len(diag_rows)))
+         if control_rows[i] != diag_rows[i]), None
+    )
+    if first_index is None and len(control_rows) != len(diag_rows):
+        first_index = min(len(control_rows), len(diag_rows))
+    return {
+        "exact_native_deal_parity": control_rows == diag_rows,
+        "control_deal_rows": len(control_rows),
+        "diagnostic_deal_rows": len(diag_rows),
+        "first_different_deal_index": first_index,
+        "control_first_different": list(control_rows[first_index])
+            if first_index is not None and first_index < len(control_rows) else None,
+        "diagnostic_first_different": list(diag_rows[first_index])
+            if first_index is not None and first_index < len(diag_rows) else None,
+    }
 
 
 def pack_evidence(run_dir: Path, zip_path: Path) -> None:
