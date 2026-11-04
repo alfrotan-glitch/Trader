@@ -52,7 +52,7 @@ class SpreadGateTests(unittest.TestCase):
                                   "NYAO_STOP_TEST_SPREAD", "unverified.set")
 
     def test_paired_native_inputs_reject_any_extra_delta(self):
-        common = {f"FakeField{i}": str(i) for i in range(171)}
+        common = {f"FakeField{i}": str(i) for i in range(170)}
         first = dict(common, MaxSpreadPoints="500")
         second = dict(common, MaxSpreadPoints="400")
         base_metrics = {"trades": 709, "net": 1091.44,
