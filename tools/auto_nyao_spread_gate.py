@@ -122,6 +122,11 @@ def verify_future_history_coverage(terminal: Path, dates: tuple[str, str]) -> di
         last = dt.datetime.fromtimestamp(int(bars[-1]["time"]), dt.timezone.utc)
         if first > begin + dt.timedelta(days=4) or last < finish - dt.timedelta(days=5):
             raise GuardFailure("Historical M5 feed missing a window edge; reject replay")
+        stamps = [int(row["time"]) for row in bars]
+        if len({dt.datetime.fromtimestamp(t, dt.timezone.utc).date() for t in stamps}) < 10:
+            raise GuardFailure("Too few distinct broker history trading days")
+        if any(b - a > 6 * 86400 for a, b in zip(stamps, stamps[1:])):
+            raise GuardFailure("Unexplained multi-day gap inside forward broker bar history")
         return {
             "m5_candles_observed": len(bars),
             "first_bar_utc": first.isoformat(),
@@ -144,6 +149,10 @@ def validate_pair(control_path: Path, trial_path: Path,
         raise GuardFailure("Native HTML did not apply intended spread values")
     if base.get("tested_range") != trial.get("tested_range"):
         raise GuardFailure("Native report test windows differ")
+    if abs(base.get("deposit", 0) - 3000) > .001 or abs(trial.get("deposit", 0) - 3000) > .001:
+        raise GuardFailure("Native reports have non-frozen initial deposit")
+    if "XAUUSD@" not in str(base.get("tested_range", "")) or "M5" not in str(base.get("tested_range", "")):
+        raise GuardFailure("Native report has non-frozen symbol or chart period")
     if expected_dates is not None:
         expected_label = f"({expected_dates[0]} - {expected_dates[1]})"
         if expected_label not in str(base.get("tested_range", "")):
