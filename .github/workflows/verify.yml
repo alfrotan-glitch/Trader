@@ -103,6 +103,26 @@ jobs:
           } finally { $archive.Dispose() }
           Write-Host 'PASS: failed safely and packaged evidence without MetaTrader installation.'
           exit 0
+      - name: Future-only replay must fail closed and package evidence without DEMO MT5
+        shell: powershell
+        run: |
+          & .\RUN_NYAO_FUTURE_REPLAY.bat
+          if ($LASTEXITCODE -ne 2) { throw 'Expected guarded failure without installed DEMO MT5 or settled future data' }
+          $zips = @(Get-ChildItem -File 'NYAO_SPREAD_GATE_EVIDENCE_*.zip' -ErrorAction SilentlyContinue)
+          if ($zips.Count -ne 1) { throw ('Expected one forward failure ZIP, found ' + $zips.Count) }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zips[0].FullName)
+          try {
+            $names = @($archive.Entries | ForEach-Object { $_.FullName })
+            if ('manifest.json' -notin $names -or 'failure_trace.txt' -notin $names) {
+              throw 'Future failure ZIP missing manifest or failure trace'
+            }
+            if (@($names | Where-Object { $_ -like '*.ini' -or $_ -like '*password*' }).Count -gt 0) {
+              throw 'Future ZIP exposed private tester configuration'
+            }
+          } finally { $archive.Dispose() }
+          Write-Host 'PASS: premature/unavailable future tests fail closed with a safe ZIP.'
+          exit 0
       - name: Refuse unsafe tester auto-start before terminal discovery
         shell: powershell
         run: |
