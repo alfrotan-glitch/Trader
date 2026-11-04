@@ -17,7 +17,8 @@ from auto_nyao_stop_recovery import (
     make_tester_ini, pack_evidence, archive_previous_csvs, check_report,
     find_mt5, make_safe_preflight_ini, launch_safe_preflight,
     verify_demo_after_autostart, GuardFailure, SYMBOL, PERIOD,
-    EXPECTED_NET, EXPECTED_TRADES,
+    EXPECTED_NET, EXPECTED_TRADES, CONTROL_EXPERT,
+    guarded_control_source, native_deal_rows, compare_native_reports,
 )
 
 
@@ -40,6 +41,63 @@ class OneClickEvidenceTests(unittest.TestCase):
             make_tester_ini(0, "WMMarkets-Demo", "NYAO_STOP_202611040841")
         with self.assertRaises(GuardFailure):
             make_tester_ini(1234, "server\n[StartUp]", "NYAO_STOP_202611040841")
+
+    def test_guarded_control_is_only_one_source_insertion(self):
+        original = (ROOT / "nyao_scalper.mq5").read_text(encoding="utf-8")
+        control = guarded_control_source(original)
+        self.assertEqual(control.count("int OnInit()"), 1)
+        self.assertIn("if(!MQLInfoInteger(MQL_TESTER) || MQLInfoInteger(MQL_OPTIMIZATION))", control)
+        self.assertIn("return INIT_FAILED;", control)
+        self.assertEqual(
+            control.replace(
+                "\n    // RESEARCH CONTROL: never run on a normal chart or in optimization.\n"
+                "    if(!MQLInfoInteger(MQL_TESTER) || MQLInfoInteger(MQL_OPTIMIZATION))\n"
+                "        return INIT_FAILED;", "", 1
+            ), original
+        )
+        config = make_tester_ini(
+            123456, "WMMarkets-Demo", "NYAO_STOP_CTRL_2026110401", CONTROL_EXPERT
+        )
+        self.assertIn("Expert=TraderResearch\\nyao_scalper_control", config)
+        with self.assertRaisesRegex(GuardFailure, "Only pinned"):
+            make_tester_ini(123456, "WMMarkets-Demo", "NYAO_STOP_BAD", "OtherExpert")
+
+    def test_exact_deal_ledger_AA_detects_first_divergence(self):
+        import html as html_module
+        def report(path, entries):
+            with path.open("w", encoding="utf-8") as out:
+                out.write("<html><table><tr><td>Deal</td></tr>")
+                for time, side, price in entries:
+                    cols = [
+                        time, "1", "XAUUSD@", side, "in", "0.01",
+                        price, "1", "0.00", "0.00", "0.00", "3000.00", "open"
+                    ]
+                    out.write("<tr>" + "".join(
+                        "<td>" + html_module.escape(value) + "</td>"
+                        for value in cols
+                    ) + "</tr>")
+                    cols2 = [
+                        time, "2", "XAUUSD@", "sell" if side=="buy" else "buy", "out",
+                        "0.01", "4000.00", "2", "0.00", "0.00", "-10.00",
+                        "2990.00", "sl"
+                    ]
+                    out.write("<tr>" + "".join(
+                        "<td>" + html_module.escape(value) + "</td>"
+                        for value in cols2
+                    ) + "</tr>")
+                out.write("</table></html>")
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = Path(tmp) / "control.htm", Path(tmp) / "diag.htm"
+            entries = [
+                ("2026.01.01 01:10:00", "buy", "4000.00"),
+                ("2026.01.01 02:10:00", "sell", "4001.00"),
+            ]
+            report(a, entries); report(b, entries)
+            self.assertTrue(compare_native_reports(a, b)["exact_native_deal_parity"])
+            report(b, [entries[0], (entries[1][0], entries[1][1], "4002.00")])
+            comparison = compare_native_reports(a, b)
+            self.assertFalse(comparison["exact_native_deal_parity"])
+            self.assertEqual(comparison["first_different_deal_index"], 2)
 
     def test_safe_autostart_disables_all_chart_trading(self):
         ini = make_safe_preflight_ini()
