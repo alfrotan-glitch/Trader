@@ -93,13 +93,39 @@ class DiagnosticIntegrityTests(unittest.TestCase):
 
     def test_csv_contract_matches_reader_and_never_overwrites(self):
         writes = count_top_level_args(self.module, "FileWrite(")
-        self.assertEqual(writes, [len(EXPECTED) + 1, len(EXPECTED) + 1])
+        # Two independent files: 36-column entry record, 22-column post-stop record.
+        self.assertEqual(writes, [len(EXPECTED) + 1, 23, 23, len(EXPECTED) + 1])
         self.assertEqual(len(EXPECTED), 36)
         self.assertIn("FileIsExist(_dxPath, FILE_COMMON)", self.module)
         self.assertIn("FILE_CSV | FILE_ANSI", self.module)
         self.assertIn("FileFlush(_dxHandle)", self.module)
         self.assertIn("HistorySelectByPosition(positionTicket)", self.module)
         self.assertIn("HistoryDealGetInteger(lastDeal, DEAL_REASON)", self.module)
+
+    def test_post_stop_tick_replay_is_read_only_and_fail_closed(self):
+        code = self.module
+        self.assertIn("NYAO_STOP_RECOVERY_TICKS.csv", code)
+        self.assertIn("FileIsExist(_dxPostPath, FILE_COMMON)", code)
+        self.assertIn("HistoryDealGetInteger(exitDeal, DEAL_REASON) != DEAL_REASON_SL", code)
+        self.assertIn("totalNet >= -0.005", code)
+        self.assertIn("HistoryDealGetInteger(exitDeal, DEAL_TIME_MSC)", code)
+        self.assertIn("DxObservePostStops(tick);", code)
+        self.assertIn("tick.bid", code)
+        self.assertIn("tick.ask", code)
+        self.assertIn("if(ms <= w.exitMs) continue;", code)
+        self.assertIn("ms > w.exitMs + 86400000", code)
+        self.assertIn("w.firstReturnMs", code)
+        self.assertIn("w.firstPlus5Ms", code)
+        self.assertIn("w.firstCheckpointMs", code)
+        self.assertIn("CENSORED_TEST_END", code)
+        self.assertIn("NO_TICKS_IN_WINDOW", code)
+        self.assertIn("WINDOW_ELAPSED", code)
+        self.assertIn("GetTPPoints(trade.volume) * _Point", code)
+        self.assertIn("DxRegisterPostStop(trade, lastDeal, totalNet);", code)
+        # Original vendor logic still differs by only the seven prior diagnostic inserts.
+        self.assertNotIn("OrderSend(", code)
+        self.assertNotIn("PositionClose(", code)
+        self.assertNotIn("OrderModify(", code)
 
     def test_no_execution_in_diagnostic_module_or_installer(self):
         for prohibited in ("OrderSend(", "PositionClose(", "EnableAlgoTrading",
