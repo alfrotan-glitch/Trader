@@ -105,6 +105,32 @@ def config_for(login: int, server: str, label: str, name: str,
     return config
 
 
+def verify_future_history_coverage(terminal: Path, dates: tuple[str, str]) -> dict:
+    """Check that broker M5 history covers both edges before replays."""
+    import MetaTrader5 as mt5
+    if not mt5.initialize(path=str(terminal), timeout=30000):
+        raise GuardFailure("MT5 API cannot inspect future-period tick/bar availability")
+    try:
+        begin = dt.datetime.strptime(dates[0], "%Y.%m.%d").replace(tzinfo=dt.timezone.utc)
+        finish = dt.datetime.strptime(dates[1], "%Y.%m.%d").replace(
+            tzinfo=dt.timezone.utc) + dt.timedelta(days=1)
+        bars = mt5.copy_rates_range("XAUUSD@", mt5.TIMEFRAME_M5, begin, finish)
+        if bars is None or len(bars) < 500:
+            raise GuardFailure("Insufficient broker historical M5 candles for future period")
+        first = dt.datetime.fromtimestamp(int(bars[0]["time"]), dt.timezone.utc)
+        last = dt.datetime.fromtimestamp(int(bars[-1]["time"]), dt.timezone.utc)
+        if first > begin + dt.timedelta(days=4) or last < finish - dt.timedelta(days=5):
+            raise GuardFailure("Historical M5 feed missing a window edge; reject replay")
+        return {
+            "m5_candles_observed": len(bars),
+            "first_bar_utc": first.isoformat(),
+            "last_bar_utc": last.isoformat(),
+            "scope_note": "Edge checks only; native Strategy Tester must independently report 100% real tick quality",
+        }
+    finally:
+        mt5.shutdown()
+
+
 def validate_pair(control_path: Path, trial_path: Path,
                   expected_dates: tuple[str, str] | None = None) -> dict:
     base, b = validated_native_report(control_path)
@@ -167,6 +193,12 @@ def run(args: argparse.Namespace) -> int:
     auto_started, closed_for_tests, was_running = False, False, False
     installed: list[Path] = []
     try:
+        dates = derive_forward_dates() if args.forward else None
+        if dates is not None:
+            state["experiment"] = "PREREGISTERED_UNSEEN_REPLAY_500_VS_400__LIVE_LOCKED"
+            state["dates"] = list(dates)
+            state["window_scope"] = "UTC-2 settled retrospective replay, NOT live DEMO execution"
+            note("Future-only historical window: " + dates[0] + " -> " + dates[1])
         vendor = ROOT / "nyao_scalper.mq5"
         if sha256(vendor) not in REQUIRED_ORIGINAL_SHA:
             raise GuardFailure("Original EA SHA changed: abort")
@@ -181,6 +213,9 @@ def run(args: argparse.Namespace) -> int:
         state["demo_verified"] = True
         state["demo_server"] = server
         note("PASS: WMMarkets DEMO, no positions/orders")
+        if dates is not None:
+            state["future_history_coverage"] = verify_future_history_coverage(terminal, dates)
+            note("PASS: independent broker M5 history coverage at window edges")
         expert = compile_tester_control(terminal, data, vendor, run_dir)
         state["source_sha256"] = sha256(vendor)
         state["guarded_control_ex5_sha256"] = sha256(expert)
@@ -199,7 +234,7 @@ def run(args: argparse.Namespace) -> int:
                   "NYAO_STOP_SPREAD_TRIAL_" + suffix]
         ini_names = ["private_base.ini", "private_trial.ini"]
         for name, label, ini in zip(names, labels, ini_names):
-            write_utf16(run_dir / ini, config_for(login, server, label, name))
+            write_utf16(run_dir / ini, config_for(login, server, label, name, dates))
         if not close_terminal(terminal, wait_s=120):
             raise GuardFailure("Cannot close DEMO terminal safely")
         closed_for_tests = True
@@ -213,7 +248,13 @@ def run(args: argparse.Namespace) -> int:
             if rc != 0:
                 raise GuardFailure(f"Strategy Tester returned {rc} on {caption}")
             reports.append(copy_report(data, terminal, label, run_dir / folder, since))
-        evidence = validate_pair(*reports)
+        evidence = validate_pair(*reports, expected_dates=dates)
+        sys.path.insert(0, str(ROOT / "research" / "spread_gate"))
+        from analyze_stop_slippage import compare_reports
+        state["stop_execution_forensics"] = compare_reports(reports[0], reports[1])
+        (run_dir / "stop_execution_forensics.json").write_text(
+            json.dumps(state["stop_execution_forensics"], indent=2) + "\n", encoding="utf-8"
+        )
         state["comparison"] = evidence
         state["candidate_risk_review"] = {
             "equity_dd_delta_percentage_points": round(
@@ -222,11 +263,19 @@ def run(args: argparse.Namespace) -> int:
             "candidate_promoted": False,
             "reason": "In-sample improvement alone cannot validate forward profitability; inspect drawdown and trade concentration",
         }
-        state["verdict"] = (
-            "HISTORICAL_AB_VALID__FORWARD_NOT_VALIDATED__LIVE_LOCKED"
-            if evidence["previous_709_reference_reproduced"] else
-            "HISTORICAL_AB_VALID__BASELINE_DRIFT__LIVE_LOCKED"
-        )
+        if dates is not None:
+            state["verdict"] = (
+                "UNSEEN_PERIOD_REPLAY_VALID__NO_LIVE_APPROVAL__LIVE_LOCKED"
+                if min(evidence["baseline"]["trades"], evidence["trial"]["trades"]) >= 50
+                else "UNSEEN_PERIOD_REPLAY_TOO_FEW_TRADES__LIVE_LOCKED"
+            )
+            note("Future-period historical replay, NOT prospective DEMO order execution.")
+        else:
+            state["verdict"] = (
+                "HISTORICAL_AB_VALID__FORWARD_NOT_VALIDATED__LIVE_LOCKED"
+                if evidence["previous_709_reference_reproduced"] else
+                "HISTORICAL_AB_VALID__BASELINE_DRIFT__LIVE_LOCKED"
+            )
         note(f"Control net USD {evidence['baseline']['net']:.2f}, "
              f"trial net USD {evidence['trial']['net']:.2f}, "
              f"delta USD {evidence['delta_net_usd']:+.2f}")
@@ -282,11 +331,15 @@ def run(args: argparse.Namespace) -> int:
             note(f"ZIP failure: {exc}; results retained at {run_dir}")
     if zip_packaging_failed:
         return 3
-    return 0 if state["verdict"].startswith("HISTORICAL_AB_VALID") else 2
+    return 0 if state["verdict"].startswith((
+        "HISTORICAL_AB_VALID", "UNSEEN_PERIOD_REPLAY_VALID"
+    )) else 2
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--forward", action="store_true",
+                        help="Replay only preregistered Nov 5+ unseen dates, after 30 settled days")
     parser.add_argument("--data-folder", default="")
     parser.add_argument("--max-minutes", type=int, default=240)
     args = parser.parse_args()
