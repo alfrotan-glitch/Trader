@@ -656,45 +656,79 @@ def run(args: argparse.Namespace) -> int:
         })
         note("PASS: new diagnostic EX5 and pinned 172-input preset.")
 
+        note("Compiling original strategy as a SECOND, tester-only guarded CONTROL...")
+        control_ex5 = compile_tester_control(terminal, data, vendor, run_dir)
+        state["source_sha256"]["guarded_control_ex5"] = sha256(control_ex5)
+        note("PASS: canonical control is protected from non-tester chart execution.")
+
         common = APPDATA / "MetaQuotes" / "Terminal" / "Common" / "Files"
         common.mkdir(parents=True, exist_ok=True)
         archive_previous_csvs(common, run_dir)
         note("Prior research CSV files archived locally without overwriting.")
 
-        label = "NYAO_STOP_" + stamp.replace("_", "")
-        config = run_dir / "private_tester.ini"
-        write_utf16(config, make_tester_ini(login, server, label))
-        note("Starting CLI Strategy Tester: XAUUSD@ M5, real ticks, original 0.01-lot preset.")
-
+        unique = stamp.replace("_", "")
+        ctrl_label = "NYAO_STOP_CTRL_" + unique
+        dx_label = "NYAO_STOP_DIAG_" + unique
+        ctrl_config = run_dir / "private_control_tester.ini"
+        dx_config = run_dir / "private_tester.ini"
+        write_utf16(ctrl_config,
+                    make_tester_ini(login, server, ctrl_label, CONTROL_EXPERT))
+        write_utf16(dx_config,
+                    make_tester_ini(login, server, dx_label, EXPERT))
+        note("Running TWO isolated historical tests under the SAME frozen preset.")
         if not close_terminal(terminal, wait_s=120):
             raise GuardFailure("Running DEMO MT5 could not close gracefully; no forced shutdown")
         closed_for_test = True
-        session_start = time.time()
-        proc = subprocess.Popen(
-            f'"{terminal}" /config:"{config}"',
-            creationflags=BELOW_NORMAL_PRIORITY_CLASS
-        )
-        deadline = time.monotonic() + (args.max_minutes * 60)
-        last_print = 0.0
-        while proc.poll() is None:
-            if time.monotonic() >= deadline:
-                proc.kill()
-                proc.wait(timeout=30)
-                raise GuardFailure("Tester exceeded configured runtime cap; partial evidence packed")
-            now = time.monotonic()
-            if now - last_print > 120:
-                note("Strategy Tester is running (no live trades).")
-                last_print = now
-            time.sleep(3)
 
-        state["mt5_process_exit_code"] = proc.returncode
-        note(f"Tester launcher exited with code {proc.returncode}. Verifying fresh evidence...")
-        report = copy_report(data, terminal, label, run_dir / "native_report", session_start)
-        state["report_file"] = report.name
+        note("[1/2] Original guarded-control tester: XAUUSD@ M5, real ticks...")
+        ctrl_started, ctrl_rc = run_tester_pass(
+            terminal, ctrl_config, args.max_minutes, "Original control"
+        )
+        state["control_tester_exit_code"] = ctrl_rc
+        ctrl_report = copy_report(
+            data, terminal, ctrl_label, run_dir / "native_control", ctrl_started
+        )
+        ctrl_metrics, ctrl_inputs = validated_native_report(ctrl_report)
+        state["native_control_summary"] = ctrl_metrics
+        note(f"CONTROL: {ctrl_metrics['trades']} trades / USD {ctrl_metrics['net']:.2f}")
+
+        note("[2/2] Instrumented tester: unchanged signals plus 24h tick observer...")
+        session_start, dx_rc = run_tester_pass(
+            terminal, dx_config, args.max_minutes, "Instrumented diagnostic"
+        )
+        state["mt5_process_exit_code"] = dx_rc
+        report = copy_report(
+            data, terminal, dx_label, run_dir / "native_report", session_start
+        )
         files = copy_fresh_csvs(common, run_dir, session_start)
-        metrics = check_report(report)
+        metrics, dx_inputs = validated_native_report(report)
         state["native_summary"] = metrics
-        note(f"PASS: A/A parity = {metrics['trades']} trades / USD {metrics['net']:.2f}; real ticks confirmed.")
+        state["report_file"] = report.name
+        if ctrl_inputs != dx_inputs:
+            raise GuardFailure(
+                "Control/diagnostic native report inputs differ. "
+                "No trading behavior conclusions can be drawn."
+            )
+        comparison = compare_native_reports(ctrl_report, report)
+        comparison["same_trades_and_net"] = (
+            ctrl_metrics["trades"] == metrics["trades"] and
+            abs(ctrl_metrics["net"] - metrics["net"]) <= 0.02
+        )
+        comparison["historical_718_reference_matched"] = (
+            ctrl_metrics["trades"] == EXPECTED_TRADES and
+            abs(ctrl_metrics["net"] - EXPECTED_NET) <= 0.02
+        )
+        state["native_AA_comparison"] = comparison
+        if comparison["exact_native_deal_parity"]:
+            note("A/A PASS: original control and diagnostic have identical native deal ledgers.")
+        else:
+            note("A/A FAIL: original control vs diagnostic diverged; "
+                 f"first differing deal index={comparison['first_different_deal_index']}.")
+        if not comparison["historical_718_reference_matched"]:
+            note("HISTORICAL REPLAY DRIFT: original control differs from saved "
+                 "718 trade / USD 1212.42 report. Do not misattribute it to the diagnostic.")
+        else:
+            note("Historical 718 / USD 1212.42 control reference reproduced.")
 
         entry_out = run_dir / "entry_forensics.json"
         entry_ok = run_analyzer([
