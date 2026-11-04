@@ -15,7 +15,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 from auto_nyao_stop_recovery import (
     make_tester_ini, pack_evidence, archive_previous_csvs, check_report,
-    find_mt5, GuardFailure, SYMBOL, PERIOD, EXPECTED_NET, EXPECTED_TRADES,
+    find_mt5, make_safe_preflight_ini, launch_safe_preflight,
+    verify_demo_after_autostart, GuardFailure, SYMBOL, PERIOD,
+    EXPECTED_NET, EXPECTED_TRADES,
 )
 
 
@@ -38,6 +40,49 @@ class OneClickEvidenceTests(unittest.TestCase):
             make_tester_ini(0, "WMMarkets-Demo", "NYAO_STOP_202611040841")
         with self.assertRaises(GuardFailure):
             make_tester_ini(1234, "server\n[StartUp]", "NYAO_STOP_202611040841")
+
+    def test_safe_autostart_disables_all_chart_trading(self):
+        ini = make_safe_preflight_ini()
+        tester = make_tester_ini(12345678, "WMMarkets-Demo", "NYAO_STOP_20261104")
+        for key in ("[Experts]", "Enabled=0", "AllowLiveTrading=0",
+                    "AllowDllImport=0", "Account=1", "Profile=1"):
+            self.assertIn(key, ini)
+            self.assertIn(key, tester)
+        self.assertNotIn("Expert=", ini)
+        self.assertNotIn("[StartUp]", ini)
+        self.assertNotIn("OrderSend(", (ROOT / "tools" / "auto_nyao_stop_recovery.py")
+                         .read_text(encoding="utf-8"))
+
+    def test_safe_autostart_does_not_start_when_other_terminal_is_running(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            terminal = Path(tmp) / "terminal64.exe"
+            with patch("auto_nyao_stop_recovery.terminal_running", return_value=False), \
+                 patch("auto_nyao_stop_recovery.detect_any_terminal_process", return_value=True), \
+                 patch("auto_nyao_stop_recovery.subprocess.Popen") as popen:
+                with self.assertRaisesRegex(GuardFailure, "already running"):
+                    launch_safe_preflight(terminal, Path(tmp))
+                popen.assert_not_called()
+
+    def test_autostart_rejects_live_account_immediately(self):
+        with patch("auto_nyao_stop_recovery.verify_running_demo",
+                   side_effect=GuardFailure("Account is NOT verified DEMO; aborting automatic tester")), \
+             patch("auto_nyao_stop_recovery.time.sleep") as wait:
+            with self.assertRaisesRegex(GuardFailure, "NOT verified DEMO"):
+                verify_demo_after_autostart(Path("terminal64.exe"), Path("demo-data"), True)
+            wait.assert_not_called()
+
+    def test_autostart_retries_only_not_ready_login(self):
+        from unittest.mock import call
+        with patch("auto_nyao_stop_recovery.verify_running_demo",
+                   side_effect=[GuardFailure("MT5 login/account details unavailable"),
+                                (1234, "WMMarkets-Demo")]) as verify, \
+             patch("auto_nyao_stop_recovery.time.sleep") as wait:
+            self.assertEqual(
+                verify_demo_after_autostart(Path("terminal64.exe"), Path("demo-data"), True),
+                (1234, "WMMarkets-Demo"),
+            )
+            self.assertEqual(verify.call_count, 2)
+            wait.assert_called_once_with(5)
 
     def test_zip_excludes_account_config_and_earlier_archives(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -104,9 +149,9 @@ class OneClickEvidenceTests(unittest.TestCase):
                         any(isinstance(n, ast.Return) for n in ast.walk(line)),
                         "A return in finally overrides the preflight failure exit code",
                     )
-        self.assertIn("wait until connected", source)
-        self.assertIn("RUN_NYAO_STOP_RECOVERY.bat", source)
-        self.assertIn("auto-launch an unverified terminal", source)
+        self.assertIn("Log in to the saved WMMarkets DEMO account once", source)
+        self.assertIn("launch_safe_preflight(terminal, run_dir)", source)
+        self.assertIn("verify_demo_after_autostart(", source)
 
     def test_only_explicit_oneclick_launcher_and_demo_gate(self):
         source = (ROOT / "tools" / "auto_nyao_stop_recovery.py").read_text(encoding="utf-8")
