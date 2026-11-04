@@ -33,6 +33,34 @@ struct DxTrade
    long observedTicks;
 };
 
+
+// One watch per genuinely loss-making, broker-SL-closed position.
+// Follow subsequent tester ticks without opening/changing a single order.
+struct DxPostStop
+{
+   ulong ticket;
+   int direction;
+   datetime entryTime;
+   double entryPrice;
+   double exitPrice;
+   double net;
+   double checkpointDistance;
+   long exitMs;
+   long firstTickMs;
+   long lastTickMs;
+   long firstReturnMs;
+   long firstPlus5Ms;
+   long firstCheckpointMs;
+   long observedTicks;
+   double maxAdverseBeforeReturn;
+   double maxAdditionalAdverse;
+   double maxFavorable;
+};
+
+int _dxPostHandle = INVALID_HANDLE;
+string _dxPostPath = "NYAO_STOP_RECOVERY_TICKS.csv";
+DxPostStop _dxPostActive[];
+
 int _dxHandle = INVALID_HANDLE;
 DxTrade _dxActive[];
 string _dxPath = "NYAO_ENTRY_DIAGNOSTICS.csv";
@@ -43,11 +71,14 @@ bool DxInit()
    if(!MQLInfoInteger(MQL_TESTER) || MQLInfoInteger(MQL_OPTIMIZATION))
       return false;
    ArrayResize(_dxActive, 0);
+   ArrayResize(_dxPostActive, 0);
+   _dxPostHandle = INVALID_HANDLE;
    _dxWriteFailed = false;
    // Do not silently overwrite a previous test's evidence.
-   if(FileIsExist(_dxPath, FILE_COMMON))
+   if(FileIsExist(_dxPath, FILE_COMMON) || FileIsExist(_dxPostPath, FILE_COMMON))
    {
-      Print("[DX] STOP: existing ", _dxPath, ". Rename/archive it before the next test.");
+      Print("[DX] STOP: existing evidence CSV. Archive both ", _dxPath, " and ",
+            _dxPostPath, " before re-testing; nothing will be overwritten.");
       return false;
    }
    ResetLastError();
@@ -71,6 +102,33 @@ bool DxInit()
       FileClose(_dxHandle); _dxHandle = INVALID_HANDLE;
       return false;
    }
+   ResetLastError();
+   _dxPostHandle = FileOpen(_dxPostPath, FILE_COMMON | FILE_WRITE | FILE_CSV | FILE_ANSI | FILE_SHARE_READ, ',');
+   if(_dxPostHandle == INVALID_HANDLE)
+   {
+      PrintFormat("[DX] Cannot open post-stop tick CSV, error %d. Test blocked.", GetLastError());
+      FileClose(_dxHandle); _dxHandle = INVALID_HANDLE;
+      FileDelete(_dxPath, FILE_COMMON); // only the file newly created during this init
+      return false;
+   }
+   uint stopHeader = FileWrite(_dxPostHandle,
+      "schema", "ticket", "symbol", "period", "direction",
+      "entry_time", "entry_price", "exit_price", "net_usd",
+      "checkpoint_distance_price", "exit_time_ms", "window_end_ms",
+      "first_observed_tick_ms", "last_observed_tick_ms", "observed_ticks",
+      "first_return_to_entry_ms", "first_plus5_ms", "first_checkpoint_ms",
+      "max_adverse_before_return_price", "max_additional_adverse_after_exit_price",
+      "max_favorable_after_exit_price", "status");
+   if(stopHeader == 0)
+   {
+      PrintFormat("[DX] Cannot write post-stop header, error %d. Test blocked.", GetLastError());
+      FileClose(_dxPostHandle); _dxPostHandle = INVALID_HANDLE;
+      FileClose(_dxHandle); _dxHandle = INVALID_HANDLE;
+      FileDelete(_dxPostPath, FILE_COMMON);
+      FileDelete(_dxPath, FILE_COMMON);
+      return false;
+   }
+   FileFlush(_dxPostHandle);
    FileFlush(_dxHandle);
    Print("[DX] Research CSV: MetaQuotes\\Terminal\\Common\\Files\\", _dxPath,
          ". No real/live trading permitted with this diagnostic variant.");
@@ -153,11 +211,117 @@ void DxTrackFilledPosition(ulong positionTicket, ENUM_ORDER_TYPE side, double fa
    _dxActive[n] = t;
 }
 
+// Exact tester tick record: executable BID for closed BUYs and ASK for closed SELLs.
+// All timestamps are broker-server milliseconds. A missing hit is not a future tick prediction.
+void DxWritePostStop(DxPostStop &w, string status)
+{
+   if(_dxPostHandle == INVALID_HANDLE) { _dxWriteFailed = true; return; }
+   uint wrote = FileWrite(_dxPostHandle,
+      "1", (string)w.ticket, _Symbol, EnumToString(_Period),
+      w.direction == 1 ? "BUY" : "SELL",
+      TimeToString(w.entryTime, TIME_DATE | TIME_SECONDS),
+      DoubleToString(w.entryPrice, _Digits), DoubleToString(w.exitPrice, _Digits),
+      DoubleToString(w.net, 2), DoubleToString(w.checkpointDistance, _Digits),
+      (string)w.exitMs, (string)(w.exitMs + 86400000),
+      w.firstTickMs > 0 ? (string)w.firstTickMs : "",
+      w.lastTickMs > 0 ? (string)w.lastTickMs : "",
+      (string)w.observedTicks,
+      w.firstReturnMs > 0 ? (string)w.firstReturnMs : "",
+      w.firstPlus5Ms > 0 ? (string)w.firstPlus5Ms : "",
+      w.firstCheckpointMs > 0 ? (string)w.firstCheckpointMs : "",
+      DoubleToString(w.maxAdverseBeforeReturn, _Digits),
+      DoubleToString(w.maxAdditionalAdverse, _Digits),
+      DoubleToString(w.maxFavorable, _Digits), status);
+   if(wrote == 0)
+   {
+      _dxWriteFailed = true;
+      PrintFormat("[DX] Post-stop row failed: ticket %I64u, error %d.", w.ticket, GetLastError());
+   }
+   FileFlush(_dxPostHandle);
+}
+
+void DxObservePostStops(MqlTick &tick)
+{
+   if(_dxPostHandle == INVALID_HANDLE || ArraySize(_dxPostActive) == 0) return;
+   if(tick.bid <= 0 || tick.ask <= 0 || tick.ask < tick.bid) return;
+   long ms = (tick.time_msc > 0) ? tick.time_msc : (long)tick.time * 1000;
+   for(int i=ArraySize(_dxPostActive)-1; i>=0; i--)
+   {
+      DxPostStop w = _dxPostActive[i];
+      if(ms <= w.exitMs) continue; // never use the stop-filling tick itself as a rebound
+      if(ms > w.exitMs + 86400000)
+      {
+         DxWritePostStop(w, w.observedTicks > 0 ? "WINDOW_ELAPSED" : "NO_TICKS_IN_WINDOW");
+         _dxPostActive[i] = _dxPostActive[ArraySize(_dxPostActive)-1];
+         ArrayResize(_dxPostActive, ArraySize(_dxPostActive)-1);
+         continue;
+      }
+      double px = w.direction == 1 ? tick.bid : tick.ask;
+      double move = w.direction * (px - w.entryPrice);
+      double extraAdverse = -w.direction * (px - w.exitPrice);
+      if(w.firstTickMs == 0) w.firstTickMs = ms;
+      w.lastTickMs = ms;
+      w.observedTicks++;
+      if(move > w.maxFavorable) w.maxFavorable = move;
+      if(extraAdverse > w.maxAdditionalAdverse) w.maxAdditionalAdverse = extraAdverse;
+      if(w.firstReturnMs == 0 && -move > w.maxAdverseBeforeReturn)
+         w.maxAdverseBeforeReturn = -move;
+      if(w.firstReturnMs == 0 && move >= 0.0) w.firstReturnMs = ms;
+      if(w.firstPlus5Ms == 0 && move >= 5.0) w.firstPlus5Ms = ms;
+      if(w.checkpointDistance > 0 && w.firstCheckpointMs == 0 &&
+         move >= w.checkpointDistance)
+         w.firstCheckpointMs = ms;
+      _dxPostActive[i] = w;
+   }
+}
+
+void DxRegisterPostStop(DxTrade &trade, ulong exitDeal, double totalNet)
+{
+   if(_dxPostHandle == INVALID_HANDLE || totalNet >= -0.005 ||
+      HistoryDealGetInteger(exitDeal, DEAL_REASON) != DEAL_REASON_SL)
+      return;
+   if(ArraySize(_dxPostActive) >= 256)
+   {
+      _dxWriteFailed = true;
+      Print("[DX] STOP-RECOVERY: 256 concurrent watches exceeded; evidence incomplete.");
+      return;
+   }
+   DxPostStop w;
+   w.ticket = trade.ticket;
+   w.direction = trade.direction;
+   w.entryTime = trade.opened;
+   w.entryPrice = trade.entry;
+   w.exitPrice = HistoryDealGetDouble(exitDeal, DEAL_PRICE);
+   w.net = totalNet;
+   w.exitMs = (long)HistoryDealGetInteger(exitDeal, DEAL_TIME_MSC);
+   if(w.exitMs <= 0) w.exitMs = (long)HistoryDealGetInteger(exitDeal, DEAL_TIME) * 1000;
+   w.checkpointDistance = GetTPPoints(trade.volume) * _Point;
+   w.firstTickMs = 0;
+   w.lastTickMs = 0;
+   w.firstReturnMs = 0;
+   w.firstPlus5Ms = 0;
+   w.firstCheckpointMs = 0;
+   w.observedTicks = 0;
+   w.maxAdverseBeforeReturn = MathMax(0.0, -w.direction * (w.exitPrice - w.entryPrice));
+   w.maxAdditionalAdverse = 0;
+   w.maxFavorable = 0;
+   if(w.exitMs <= 0 || w.checkpointDistance <= 0)
+   {
+      _dxWriteFailed = true;
+      PrintFormat("[DX] STOP-RECOVERY missing clock/target for position %I64u.", trade.ticket);
+      return;
+   }
+   int n = ArraySize(_dxPostActive);
+   ArrayResize(_dxPostActive, n+1);
+   _dxPostActive[n] = w;
+}
+
 void DxOnTick()
 {
-   if(_dxHandle == INVALID_HANDLE || ArraySize(_dxActive) == 0) return;
+   if(_dxHandle == INVALID_HANDLE) return;
    MqlTick tick;
    if(!SymbolInfoTick(_Symbol, tick)) return;
+   DxObservePostStops(tick); // observes even when no trading position is open
    for(int i=0; i<ArraySize(_dxActive); i++)
    {
       if(!PositionSelectByTicket(_dxActive[i].ticket)) continue;
@@ -261,6 +425,7 @@ void DxOnClosedPosition(ulong positionTicket, double totalNet)
                                                    : exitPrice - trade.lastObservedSl;
             slGap = DoubleToString(MathMax(0.0, adverse), _Digits);
          }
+         DxRegisterPostStop(trade, lastDeal, totalNet); // SL-loss only, no order changes
       }
    }
    DxWriteRow(trade, closeTime, closePrice, reason, comment, DoubleToString(totalNet, 2),
@@ -274,9 +439,18 @@ void DxFinish()
    if(_dxHandle == INVALID_HANDLE) return;
    for(int i=0; i<ArraySize(_dxActive); i++)
       DxWriteRow(_dxActive[i], "", "", "", "", "", "", "OPEN_AT_DEINIT_UNRESOLVED");
+   for(int k=0; k<ArraySize(_dxPostActive); k++)
+      DxWritePostStop(_dxPostActive[k], "CENSORED_TEST_END");
+   ArrayResize(_dxPostActive, 0);
    FileFlush(_dxHandle);
    FileClose(_dxHandle);
    _dxHandle = INVALID_HANDLE;
+   if(_dxPostHandle != INVALID_HANDLE)
+   {
+      FileFlush(_dxPostHandle);
+      FileClose(_dxPostHandle);
+      _dxPostHandle = INVALID_HANDLE;
+   }
    Print(_dxWriteFailed ? "[DX] EVIDENCE INCOMPLETE: review tester logs."
-                        : "[DX] CSV complete: MetaQuotes\\Terminal\\Common\\Files\\NYAO_ENTRY_DIAGNOSTICS.csv");
+                        : "[DX] CSVs complete: NYAO_ENTRY_DIAGNOSTICS.csv and NYAO_STOP_RECOVERY_TICKS.csv");
 }
