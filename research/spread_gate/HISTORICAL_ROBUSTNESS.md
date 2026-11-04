@@ -10,7 +10,9 @@ From the existing Trader research branch:
     git pull --ff-only origin research/spread-gate-ab-20261104
     .\RUN_NYAO_HISTORICAL_STRESS.bat
 
-If the earlier failed Q1 evidence ZIP remains inside the Trader folder, the runner verifies its SHA-256 manifest, pinned source, compiled tester-only EX5, inputs, native real-tick report dates and complete deal ledgers; if every check passes it reuses the two already-completed Q1 native reports and runs only **six remaining native MT5 tests**. If no matching evidence is available, it runs all eight from scratch. It does not trust an unmatched or modified ZIP.\n\nThis automatically verifies a connected and flat WMMarkets DEMO account, compiles the tester-only guarded ORIGINAL vendor source, uses the exact frozen 172-input preset and a candidate changing only MaxSpreadPoints 500 -> 400, then executes **eight isolated MT5 native 100%-real-tick backtests**, organized as four matched periods:
+If the earlier failed Q1 evidence ZIP remains inside the Trader folder, the runner verifies its SHA-256 manifest, pinned source, compiled tester-only EX5, inputs, native real-tick report dates and complete deal ledgers; if every check passes it reuses the two already-completed Q1 native reports and runs only **six remaining native MT5 tests**. If no matching evidence is available, it runs all eight from scratch. It does not trust an unmatched or modified ZIP.
+
+This automatically verifies a connected and flat WMMarkets DEMO account, compiles the tester-only guarded ORIGINAL vendor source, uses the exact frozen 172-input preset and a candidate changing only MaxSpreadPoints 500 -> 400, then executes **eight isolated MT5 native 100%-real-tick backtests**, organized as four matched periods:
 
 | Fold | Dates | Runs |
 | --- | --- | --- |
