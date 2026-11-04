@@ -217,6 +217,36 @@ def verify_running_demo(terminal: Path, data: Path) -> tuple[int, str]:
             mt5.shutdown()
 
 
+def verify_demo_after_autostart(terminal: Path, data: Path,
+                                auto_started: bool) -> tuple[int, str]:
+    """Give a newly launched MT5 time to restore its DEMO connection.
+
+    Never retry on a REAL login, foreign broker or non-flat account:
+    only account-not-ready communication errors are retryable.
+    """
+    if not auto_started:
+        return verify_running_demo(terminal, data)
+    deadline = time.monotonic() + 90
+    while True:
+        try:
+            return verify_running_demo(terminal, data)
+        except GuardFailure as exc:
+            reason = str(exc)
+            not_ready = (
+                "MT5 login/account details unavailable" in reason or
+                "Could not inspect running MT5 account" in reason
+            )
+            if not not_ready or time.monotonic() >= deadline:
+                if not_ready:
+                    raise GuardFailure(
+                        "MT5 was opened with automated chart trading disabled, "
+                        "but there is no connected account yet. Log in to the "
+                        "saved WMMarkets DEMO account once, then rerun the batch file."
+                    ) from exc
+                raise
+            time.sleep(5)
+
+
 def pack_evidence(run_dir: Path, zip_path: Path) -> None:
     """Include only this run's evidence. Never include MT5 credentials/config."""
     file_count = 0
@@ -421,7 +451,9 @@ def run(args: argparse.Namespace) -> int:
         if started_safe_preflight:
             note("Opened MT5 automatically using [Experts] Enabled=0 / AllowLiveTrading=0.")
         note("Verifying WMMarkets DEMO login and no open orders...")
-        login, server = verify_running_demo(terminal, data)
+        login, server = verify_demo_after_autostart(
+            terminal, data, started_safe_preflight
+        )
         if started_safe_preflight:
             state["safe_preflight_autostart"] = True
         was_running = True
