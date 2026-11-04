@@ -53,7 +53,7 @@ class FrozenForwardAndStopsTests(unittest.TestCase):
         b = dict(params, MaxSpreadPoints="500")
         t = dict(params, MaxSpreadPoints="400")
         base = {"trades": 1, "net": 12.0, "deposit": 3000,
-                "tested_range": "XAUUSD@,M5 (2026.01.01 - 2026.11.02)"}
+                "tested_range": "M5 (2026.01.01 - 2026.11.02)"}
         trial = {"trades": 1, "net": 11.0, "deposit": 3000,
                  "tested_range": base["tested_range"]}
         with patch.object(future, "validated_native_report",
