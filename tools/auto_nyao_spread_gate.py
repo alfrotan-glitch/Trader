@@ -72,8 +72,8 @@ def validate_pair(control_path: Path, trial_path: Path) -> dict:
     trial, t = validated_native_report(trial_path)
     diffs = {k: [b.get(k), t.get(k)] for k in b.keys() | t.keys()
              if b.get(k) != t.get(k)}
-    if len(b) != 172 or len(t) != 172 or set(diffs) != {INPUT}:
-        raise GuardFailure("Native 172-input profiles are NOT one-variable A/B")
+    if len(b) != 171 or len(t) != 171 or set(diffs) != {INPUT}:
+        raise GuardFailure("Native HTML has 171 enumerated inputs or A/B differs by more than spread")
     if float(b[INPUT]) != 500 or float(t[INPUT]) != 400:
         raise GuardFailure("Native HTML did not apply intended spread values")
     if base.get("tested_range") != trial.get("tested_range"):
