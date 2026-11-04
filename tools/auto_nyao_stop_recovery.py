@@ -157,19 +157,32 @@ def launch_safe_preflight(terminal: Path, run_dir: Path) -> bool:
     except OSError as exc:
         raise GuardFailure(f"MT5 could not start with safe trading-disabled config: {exc}") from exc
     deadline = time.monotonic() + 90
-    while time.monotonic() < deadline:
-        if terminal_running(terminal):
-            return True
-        if proc.poll() is not None:
-            raise GuardFailure(
-                f"MT5 safe preflight exited before connection (code {proc.returncode}). "
-                "See ZIP and verify the installed terminal."
-            )
-        time.sleep(2)
-    raise GuardFailure(
-        "MT5 did not become visible within the safe preflight window; "
-        "no test started. If it remains open, select the correct demo login."
-    )
+    try:
+        while time.monotonic() < deadline:
+            if terminal_running(terminal):
+                return True
+            if proc.poll() is not None:
+                raise GuardFailure(
+                    f"MT5 safe preflight exited before connection (code {proc.returncode}). "
+                    "See ZIP and verify the installed terminal."
+                )
+            time.sleep(2)
+        raise GuardFailure(
+            "MT5 did not become visible within the safe preflight window; "
+            "no test started. If it remains open, select the correct demo login."
+        )
+    except Exception:
+        # Even an unexpected launcher timeout must not leave an unverified
+        # terminal on a potentially REAL saved login.
+        try:
+            if terminal_running(terminal):
+                close_terminal(terminal, wait_s=30)
+            elif proc.poll() is None:
+                proc.terminate()
+                proc.wait(timeout=15)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        raise
 
 
 def verify_running_demo(terminal: Path, data: Path) -> tuple[int, str]:
