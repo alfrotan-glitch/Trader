@@ -166,6 +166,7 @@ try {
         data_folder = $mt5.Data
         profile = $destPreset
         output_csv_when_tested = Join-Path $env:APPDATA 'MetaQuotes\Terminal\Common\Files\NYAO_ENTRY_DIAGNOSTICS.csv'
+        stop_recovery_csv_when_tested = Join-Path $env:APPDATA 'MetaQuotes\Terminal\Common\Files\NYAO_STOP_RECOVERY_TICKS.csv'
         started_terminal = $false
         sent_orders = $false
     }
@@ -176,6 +177,7 @@ try {
     Write-Host 'In DEMO MT5 Strategy Tester select Expert: TraderResearch\nyao_scalper_diagnostic'
     Write-Host ('Load Inputs preset: ' + $destPreset)
     Write-Host ('CSV output after manual TEST: ' + $receipt.output_csv_when_tested)
+    Write-Host ('Post-stop tick CSV after manual TEST: ' + $receipt.stop_recovery_csv_when_tested)
     Write-Host ('Compile evidence: ' + $runDir)
     Write-Host 'Terminal was NOT launched; no orders were sent. LIVE remains LOCKED.'
     exit 0
