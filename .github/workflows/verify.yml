@@ -103,6 +103,26 @@ jobs:
           } finally { $archive.Dispose() }
           Write-Host 'PASS: failed safely and packaged evidence without MetaTrader installation.'
           exit 0
+      - name: Entry gate historical tester must fail closed without installed DEMO MT5
+        shell: powershell
+        run: |
+          & .\RUN_NYAO_ENTRY_GATE_TEST.bat
+          if ($LASTEXITCODE -ne 2) { throw 'Expected safe abort without WMMarkets DEMO MT5' }
+          $zips = @(Get-ChildItem -File 'NYAO_ENTRY_GATE_EVIDENCE_*.zip' -ErrorAction SilentlyContinue)
+          if ($zips.Count -ne 1) { throw ('Expected one safe failed ZIP: ' + $zips.Count) }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zips[0].FullName)
+          try {
+            $names = @($archive.Entries | ForEach-Object { $_.FullName })
+            if ('manifest.json' -notin $names -or 'failure_trace.txt' -notin $names) {
+              throw 'Entry gate evidence ZIP missing failure manifest'
+            }
+            if (@($names | Where-Object { $_ -match '(?i)\.ini$|password|token|archive/' }).Count -gt 0) {
+              throw 'Entry gate ZIP exposed private file'
+            }
+          } finally { $archive.Dispose() }
+          Write-Host 'PASS: entry gate runner fails closed without MT5 and retains safe evidence.'
+          exit 0
       - name: Historical four-regime one-click must fail closed without installed DEMO MT5
         shell: powershell
         run: |
