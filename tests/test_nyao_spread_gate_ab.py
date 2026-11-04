@@ -10,6 +10,16 @@ import auto_nyao_spread_gate as experiment
 
 
 class SpreadGateTests(unittest.TestCase):
+    def test_real_repo_preset_is_pinned_and_single_variable(self):
+        source = experiment.SOURCE_PRESET
+        self.assertTrue(source.is_file())
+        self.assertEqual(experiment.sha256(source), experiment.BASE_SHA256)
+        original, trial = experiment.frozen_profiles(source.read_text("utf-8-sig"))
+        b, t = experiment.profile_inputs(original), experiment.profile_inputs(trial)
+        self.assertEqual(len(b), 172)
+        self.assertEqual(len(t), 172)
+        self.assertEqual({k for k in b if b[k] != t[k]}, {"MaxSpreadPoints"})
+
     def test_profile_is_exactly_one_input(self):
         mandatory = {
             "RiskPerTradePct": "0.0", "EnableDynamicLots": "false",
