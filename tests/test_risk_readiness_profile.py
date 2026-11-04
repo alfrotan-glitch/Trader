@@ -46,8 +46,10 @@ class RiskReadinessExperiment(unittest.TestCase):
         open_body = code[start:end]
         self.assertIn("if(!ApplyRiskSizing(currentLot, slPoints * (1 + cpSkips)))", open_body)
         self.assertIn("request.volume = currentLot;", open_body)
+        # The request initially gets a provisional volume, then is overwritten
+        # with the risk-adjusted volume after ApplyRiskSizing, before OrderSend.
         self.assertLess(open_body.index("if(!ApplyRiskSizing("),
-                        open_body.index("request.volume = currentLot;"))
+                        open_body.rindex("request.volume = currentLot;"))
         self.assertIn("return (lossAtMinLot <= AccountInfoDouble(ACCOUNT_EQUITY) * MaxRiskPerTradePct / 100.0 + 1e-9) ? minLot : 0;", code)
         self.assertIn("if(sized == 0)", code)
         self.assertIn("return false;", code[code.index("if(sized == 0)"):code.index("if(lossAtMinLot > riskMoney)")])
